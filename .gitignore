@@ -1,0 +1,43 @@
+# Secretos
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.jks
+key.properties
+
+# Node
+node_modules/
+npm-debug.log*
+coverage/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+mobile/build/
+**/android/.gradle/
+**/android/local.properties
+**/ios/Pods/
+**/ios/.symlinks/
+*.iml
+
+# Builds y empaquetados
+build/
+dist/
+*.zip
+*.apk
+*.aab
+*.ipa
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
