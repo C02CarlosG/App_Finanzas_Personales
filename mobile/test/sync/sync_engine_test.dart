@@ -208,6 +208,58 @@ void main() {
       expect(h.engine.isSyncing, isFalse);
     });
 
+    test('respuesta perdida + borrado posterior: queda tombstone y el borrado SÍ se envía (no resucita)', () async {
+      await h.store.saveCategory(id: 'cat-1', kind: 'expense', name: 'Comida');
+      h.api.onPush = (_) async => throw const ApiException.network(); // el servidor aplicó, pero la respuesta se perdió
+      await expectLater(h.engine.run(), throwsA(isA<ApiException>()));
+      expect(h.engine.isSyncing, isFalse);
+
+      await h.store.delete('categories', 'cat-1');
+      final row = await h.db.select(h.db.categories).getSingle();
+      expect(row.deletedAt, isNotNull); // NO se eliminó físicamente
+      final entry = (await h.outbox()).single;
+      expect([entry.deleted, entry.maybeSent], [true, true]);
+
+      h.api.onPush = (changes) async => pushResponse([
+            for (final c in changes)
+              result(c, 'applied', record: serverCategory('cat-1', 'Comida', deletedAt: '2026-10-20T11:59:00.000000Z')),
+          ]);
+      await h.engine.run();
+      expect(h.api.pushes.last.single['deleted'], isTrue);
+      expect((await h.db.select(h.db.categories).getSingle()).deletedAt, '2026-10-20T11:59:00.000000Z');
+      expect(await h.outbox(), isEmpty);
+    });
+
+    test('maybe_sent se conserva si el usuario edita de nuevo antes de la respuesta', () async {
+      await h.store.saveCategory(id: 'cat-1', kind: 'expense', name: 'A');
+      h.api.onPush = (_) async => throw const ApiException.network();
+      await expectLater(h.engine.run(), throwsA(isA<ApiException>()));
+      await h.store.saveCategory(id: 'cat-1', kind: 'expense', name: 'B'); // reemplaza el renglón
+      expect((await h.outbox()).single.maybeSent, isTrue);
+      await h.store.delete('categories', 'cat-1');
+      expect((await h.db.select(h.db.categories).getSingle()).deletedAt, isNotNull);
+    });
+
+    test('duplicate_name sin record NO fusiona si el usuario renombró la categoría con el lote en vuelo', () async {
+      await seedBasics();
+      h.api.onPush = (changes) async {
+        h.advance(const Duration(seconds: 5));
+        await h.store.saveCategory(id: 'cat-1', kind: 'expense', name: 'Renombrada por el usuario');
+        return pushResponse([
+          for (final c in changes)
+            switch (c['table']) {
+              'categories' => result(c, 'rejected', code: 'duplicate_name', extra: {'conflicting_id': 'cat-existing'}),
+              _ => result(c, 'applied', record: okRecord(c)),
+            },
+        ]);
+      };
+      await h.engine.run();
+      final cat = await h.db.select(h.db.categories).getSingle();
+      expect(cat.name, 'Renombrada por el usuario'); // sigue existiendo
+      expect((await h.tx('tx-1')).categoryId, 'cat-1'); // sin reasignar
+      expect((await h.outbox()).map((e) => e.recordId), contains('cat-1')); // se reenviará
+    });
+
     test('un solo ciclo a la vez: run() concurrente devuelve el mismo Future', () async {
       await seedBasics();
       await acceptAll();

@@ -3,12 +3,23 @@
 ///
 /// Con el mismo formato y longitud, comparar los strings equivale a comparar
 /// las fechas, y no se pierde precisión que el cursor del pull necesita.
-String formatStamp(DateTime t) {
-  final u = t.toUtc();
+String formatStamp(DateTime t) => formatStampMicros(t.toUtc().microsecondsSinceEpoch);
+
+/// Formatea desde microsegundos desde la época **sin pasar por DateTime** para los decimales:
+/// en la web un DateTime solo guarda milisegundos y se perderían los +1 µs de la monotonía.
+String formatStampMicros(int micros) {
+  final secs = micros ~/ 1000000;
+  final frac = micros % 1000000;
+  final u = DateTime.fromMillisecondsSinceEpoch(secs * 1000, isUtc: true);
   String p(int n, int w) => n.toString().padLeft(w, '0');
-  final micros = u.millisecond * 1000 + u.microsecond;
   return '${p(u.year, 4)}-${p(u.month, 2)}-${p(u.day, 2)}'
-      'T${p(u.hour, 2)}:${p(u.minute, 2)}:${p(u.second, 2)}.${p(micros, 6)}Z';
+      'T${p(u.hour, 2)}:${p(u.minute, 2)}:${p(u.second, 2)}.${p(frac, 6)}Z';
+}
+
+/// Microsegundos desde la época de un sello `YYYY-MM-DDTHH:MM:SS.ffffffZ` (exacto también en la web).
+int stampToMicros(String stamp) {
+  final secs = DateTime.parse('${stamp.substring(0, 19)}Z').millisecondsSinceEpoch ~/ 1000;
+  return secs * 1000000 + int.parse(stamp.substring(20, 26));
 }
 
 DateTime parseStamp(String s) => DateTime.parse(s);
@@ -28,9 +39,16 @@ class StampClock {
 
   DateTime now() => _now().toUtc().add(offset);
 
+  /// Nunca emite un sello menor o igual que [stamp] (p. ej. el mayor que ya hay en la base al
+  /// arrancar), aunque el reloj o su desfase con el servidor hayan cambiado.
+  void seed(String stamp) {
+    final micros = stampToMicros(stamp);
+    if (micros > _lastMicros) _lastMicros = micros;
+  }
+
   String stamp() {
     final micros = now().microsecondsSinceEpoch;
     _lastMicros = micros > _lastMicros ? micros : _lastMicros + 1;
-    return formatStamp(DateTime.fromMicrosecondsSinceEpoch(_lastMicros, isUtc: true));
+    return formatStampMicros(_lastMicros);
   }
 }

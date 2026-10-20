@@ -31,4 +31,21 @@ void main() {
     expect(b.compareTo(c), lessThan(0));
     expect(c, matches(RegExp(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$')));
   });
+
+  test('los microsegundos sobreviven al formato (sin pasar por DateTime, que en web solo guarda ms)', () {
+    final micros = DateTime.utc(2026, 10, 20, 15, 4, 5, 123).microsecondsSinceEpoch + 456;
+    expect(formatStampMicros(micros), '2026-10-20T15:04:05.123456Z');
+    expect(stampToMicros('2026-10-20T15:04:05.123456Z'), micros);
+    expect(stampToMicros(formatStampMicros(micros + 1)), micros + 1);
+  });
+
+  test('seed impide emitir un sello menor o igual que uno ya existente', () {
+    final clock = StampClock(now: () => DateTime.utc(2026, 10, 20, 12));
+    clock.seed('2026-10-20T13:00:00.000500Z'); // la base ya tiene un sello "del futuro"
+    final next = clock.stamp();
+    expect(next.compareTo('2026-10-20T13:00:00.000500Z'), greaterThan(0));
+    expect(next, '2026-10-20T13:00:00.000501Z');
+    clock.seed('2026-10-20T11:00:00.000000Z'); // un sello menor no retrocede el reloj
+    expect(clock.stamp().compareTo(next), greaterThan(0));
+  });
 }

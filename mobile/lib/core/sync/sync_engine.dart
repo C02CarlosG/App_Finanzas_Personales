@@ -86,6 +86,9 @@ class SyncEngine {
       }
       if (sent.isEmpty) continue;
 
+      // Persistente y ANTES de enviar: si la respuesta se pierde, el registro pudo haber llegado.
+      await _markMaybeSent([for (final s in sent) s.$1]);
+
       final Map<String, dynamic> response;
       try {
         response = await api.push([for (final s in sent) s.$2]);
@@ -171,31 +174,37 @@ class SyncEngine {
   /// Adopta la versión del servidor. Si el usuario volvió a editar el registro mientras
   /// el lote estaba en vuelo, **no** se sobrescribe la fila: solo se registra `updated_at`
   /// del servidor y la outbox conserva la edición más nueva (docs/sync.md §6).
-  Future<void> _adopt(SyncTable table, OutboxEntry sent, Map<String, dynamic>? record) async {
-    final current = await _outbox(sent.entity, sent.recordId);
-    final editedMeanwhile = current != null && current.clientUpdatedAt.compareTo(sent.clientUpdatedAt) > 0;
+  ///
+  /// La comprobación y la escritura van en la **misma transacción**: así una edición del usuario
+  /// no puede colarse entre la lectura de la outbox y el reemplazo de la fila.
+  Future<void> _adopt(SyncTable table, OutboxEntry sent, Map<String, dynamic>? record) =>
+      db.transaction(() async {
+        final current = await _outbox(sent.entity, sent.recordId);
+        final editedMeanwhile = current != null && current.clientUpdatedAt.compareTo(sent.clientUpdatedAt) > 0;
 
-    if (record == null) {
-      // El servidor no conoce el registro (borrado de algo que nunca subió): nada que conservar.
-      if (!editedMeanwhile) {
-        await table.removeLocal(sent.recordId);
+        if (record == null) {
+          // El servidor no conoce el registro (borrado de algo que nunca subió): nada que conservar.
+          if (!editedMeanwhile) {
+            await table.removeLocal(sent.recordId);
+            await _removeOutbox(sent.entity, sent.recordId);
+          }
+          return;
+        }
+        if (editedMeanwhile) {
+          await table.markSynced(sent.recordId, record['updated_at'] as String);
+          return;
+        }
+        await table.applyServerRecord(record);
         await _removeOutbox(sent.entity, sent.recordId);
-      }
-      return;
-    }
-    if (editedMeanwhile) {
-      await table.markSynced(sent.recordId, record['updated_at'] as String);
-      return;
-    }
-    await db.transaction(() async {
-      await table.applyServerRecord(record);
-      await _removeOutbox(sent.entity, sent.recordId);
-    });
-  }
+      });
 
   /// `duplicate_name` sin `record` = alta rechazada: se reasignan las transacciones locales a
   /// la categoría que ya existe, se borra la local (nunca llegó al servidor) y se sale de la outbox.
+  /// Si el usuario la editó (p. ej. la renombró) con el lote en vuelo, **no** se fusiona: esa edición
+  /// es un cambio nuevo que se enviará en el siguiente ciclo.
   Future<void> _mergeDuplicateCategory(OutboxEntry sent, String conflictingId) => db.transaction(() async {
+        final current = await _outbox(sent.entity, sent.recordId);
+        if (current != null && current.clientUpdatedAt.compareTo(sent.clientUpdatedAt) > 0) return;
         final stamp = clock.stamp();
         final affected = await (db.select(db.transactions)..where((t) => t.categoryId.equals(sent.recordId))).get();
         for (final tx in affected) {
@@ -205,6 +214,14 @@ class SyncEngine {
         }
         await _tables['categories']!.removeLocal(sent.recordId);
         await _removeOutbox(sent.entity, sent.recordId);
+      });
+
+  Future<void> _markMaybeSent(List<OutboxEntry> entries) => db.transaction(() async {
+        for (final e in entries) {
+          await (db.update(db.syncOutbox)
+                ..where((t) => t.entity.equals(e.entity) & t.recordId.equals(e.recordId) & t.clientUpdatedAt.equals(e.clientUpdatedAt)))
+              .write(const SyncOutboxCompanion(maybeSent: Value(true)));
+        }
       });
 
   // Solo si el renglón sigue siendo el que se envió: una edición posterior es un cambio nuevo

@@ -77,6 +77,11 @@ class SyncOutbox extends Table {
   IntColumn get attempts => integer().withDefault(const Constant(0))();
   TextColumn get lastError => text().nullable()();
 
+  /// Se marca **antes** de cada envío y es persistente: si la respuesta se pierde (timeout, app
+  /// cerrada), el registro pudo haber llegado al servidor aunque aquí siga sin `updated_at`.
+  /// Un borrado posterior debe dejar tombstone y enviarse, no eliminar la fila (docs/sync.md §6).
+  BoolColumn get maybeSent => boolean().withDefault(const Constant(false))();
+
   /// El servidor lo marcó inválido de forma permanente: no se reenvía hasta que
   /// la app (o el usuario) lo corrija. Ver docs/sync.md §4.
   BoolColumn get blocked => boolean().withDefault(const Constant(false))();

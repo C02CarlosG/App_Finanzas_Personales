@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:finanzas_personales/core/network/api_client.dart';
@@ -66,5 +67,40 @@ void main() {
   test('401 se marca como no autorizado', () async {
     final api = clientFor(MockClient((_) async => http.Response(jsonEncode({'error': 'x', 'code': 'unauthorized'}), 401)));
     await expectLater(api.get('/x'), throwsA(isA<ApiException>().having((e) => e.isUnauthorized, 'unauthorized', true)));
+  });
+
+  test('el tiempo límite cubre también el cuerpo de la respuesta', () async {
+    final stalled = StreamController<List<int>>(); // cuerpo que nunca termina
+    addTearDown(stalled.close);
+    final api = ApiClient(
+      baseUrl: 'http://api.test',
+      httpClient: MockClient.streaming((req, body) async => http.StreamedResponse(stalled.stream, 200)),
+      timeout: const Duration(milliseconds: 50),
+    );
+    await expectLater(api.get('/x'), throwsA(isA<ApiException>().having((e) => e.isNetwork, 'isNetwork', true)));
+  });
+
+  test('una respuesta 2xx que no es JSON se reporta como bad_response', () async {
+    final api = clientFor(MockClient((_) async => http.Response('<html>login del portal cautivo</html>', 200)));
+    await expectLater(api.post('/auth/login', body: {}), throwsA(isA<ApiException>().having((e) => e.code, 'code', 'bad_response')));
+  });
+
+  test('un cuerpo vacío 2xx es válido', () async {
+    final api = clientFor(MockClient((_) async => http.Response('', 204)));
+    expect(await api.get('/x'), isEmpty);
+  });
+
+  test('conserva el prefijo de ruta de la URL base', () async {
+    late Uri seen;
+    final mock = MockClient((req) async {
+      seen = req.url;
+      return http.Response('{}', 200);
+    });
+    for (final base in ['https://host.mx/api', 'https://host.mx/api/']) {
+      await ApiClient(baseUrl: base, httpClient: mock).get('/sync/pull', query: {'limit': '5'});
+      expect(seen.toString(), 'https://host.mx/api/sync/pull?limit=5', reason: base);
+    }
+    await ApiClient(baseUrl: 'http://10.0.2.2:3000', httpClient: mock).get('/health');
+    expect(seen.toString(), 'http://10.0.2.2:3000/health');
   });
 }

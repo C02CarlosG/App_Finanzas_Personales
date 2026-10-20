@@ -13,11 +13,12 @@ _Última actualización: 2026-10-20 (Paso 3)_
 - 2026-10-20 – **Revisión adversarial del Paso 2** (4 revisores + verificadores independientes): 13 hallazgos confirmados y corregidos en código y documento (falso `duplicate_name` al borrar+recrear, carrera de FK, deadlock, margen de seguridad sin garantía, cursor con fecha imposible, UUID en mayúsculas, etc.), 3 refutados, 9 de `client-doc` sin verificador (límite de sesión) evaluados a mano: 8 eran defectos reales del algoritmo del cliente y se corrigieron en `docs/sync.md`.
 - 2026-10-20 – **Paso 2**: protocolo de sync documentado en `docs/sync.md` e implementado: `POST /sync/push`, `GET /sync/pull`, migración `002_sync.sql`. 63 pruebas pasando (tras la revisión adversarial).
 
-- 2026-10-20 – **Paso 3**: `mobile/` con Flutter 3.47: estructura por features, Riverpod, go_router (barra inferior de 5 secciones y redirección por sesión), login/registro funcional, drift/SQLite (espejo del servidor + outbox, una base por usuario), `Money` en centavos, `ApiClient`, `LocalStore` y **motor de sync** (push→pull) probado con SQLite en memoria (26 pruebas) y **contra el backend real con dos dispositivos simulados** (6 pruebas e2e). Flutter: 58 pruebas en total (17 núcleo, 26 sync, 9 interfaz, 6 e2e); sin API real corren 52 y la e2e se omite. CI: trabajos `mobile` (analyze + test + e2e con Postgres) y `mobile-demo` (APK y web demo como artefactos).
+- 2026-10-20 – **Paso 3**: `mobile/` con Flutter 3.47: estructura por features, Riverpod, go_router (barra inferior de 5 secciones y redirección por sesión), login/registro funcional, drift/SQLite (espejo del servidor + outbox, una base por usuario), `Money` en centavos, `ApiClient`, `LocalStore` y **motor de sync** (push→pull) probado con SQLite en memoria y **contra el backend real con dos dispositivos simulados** (6 pruebas e2e). CI en verde: `backend`, `mobile` (analyze + pruebas + e2e con Postgres) y `mobile-demo` (APK de depuración y web demo como artefactos; **el build de Android quedó confirmado**).
+- 2026-10-20 – **Revisión adversarial del Paso 3** (3 revisores + 2 verificadores por hallazgo, 25 agentes): 11 candidatos, 0 refutados; corregidos 10 (≈8 defectos distintos): respuesta de push perdida + borrado posterior resucitaba el registro (ahora `maybe_sent` persistente en la outbox), comprobación de "edición en vuelo" dentro de la misma transacción (en `_adopt` y en la fusión de categorías), desfase de reloj y sello mínimo restaurados al arrancar, timeout de red que cubre el cuerpo, respuesta 2xx no JSON, prefijo de ruta de `API_BASE_URL`, y `allowBackup=false` en Android. El 11.º (401 sin manejo) quedó en disputa por no ser alcanzable aún: se hará en el Paso 4. Flutter: **70 pruebas** (64 + 6 e2e con API real); cada arreglo se comprobó desactivándolo y viendo fallar su prueba.
 
 ## Qué sigue (en orden)
 1. Revisar y aprobar los PR #1 (Paso 2) y del Paso 3.
-2. Paso 4 – Fase 1 en móvil: bancos (selector con logos), cuentas de efectivo, agregar ingreso/gasto, listados con filtros, dashboard con datos reales y disparo automático del sync.
+2. Paso 4 – Fase 1 en móvil: bancos (selector con logos), cuentas de efectivo, agregar ingreso/gasto, listados con filtros, dashboard con datos reales y disparo automático del sync. **Obligatorio en este paso:** manejo de sesión expirada (401) conservando la base local y la outbox, UX de transacciones huérfanas y de outbox bloqueada.
 4. Paso 4 – Fase 1 en móvil.
 5. Paso 5 – Fase 2 (préstamos, suscripciones, tarjetas): endpoints y móvil. El esquema ya existe.
 6. Paso 6 – Fase 3 (reportes, presupuestos, alertas).
@@ -43,7 +44,8 @@ _Última actualización: 2026-10-20 (Paso 3)_
 5. **Transacción huérfana** (solo si el padre ya llegó como tombstone; mientras esté pendiente, el cliente reintenta) (otro dispositivo borró la cuenta/categoría mientras este creaba una transacción offline): el servidor responde `invalid_reference`; la UX para reasignar o descartar se define en el Paso 4.
 6. **Tombstones** nunca se purgan; definir retención y `410 resync_required` en Fase 4.
 7. **Web con base local** necesita `sqlite3.wasm` y `drift_worker.js` en `web/` (hoy la web solo sirve en modo demo). **iOS** se agrega después.
-8. **APK**: no se pudo compilar localmente (sin Android SDK en el entorno); lo compila el CI (`mobile-demo`). Pendiente confirmar que el build de Android pasa en CI.
+8. **APK**: no se compila localmente (sin Android SDK en el entorno); lo compila el CI (`mobile-demo`, en verde). Es un APK de **depuración en modo demo**; un build de producción necesita firma (keystore) y decidir HTTPS/dominio de la API.
+8b. **Esquema local sin migraciones aún**: `schemaVersion = 1` y se modifica la tabla directamente mientras no haya usuarios reales. Antes del primer lanzamiento hay que congelar la versión y escribir migraciones.
 9. LWW por registro pierde ediciones concurrentes de campos distintos (aceptado); si molesta, evaluar resolución por campo.
 
 ## Comandos

@@ -57,7 +57,8 @@ test/              core · sync (motor, con SQLite en memoria) · features (inte
 - **Dinero:** `Money` guarda centavos enteros; el servidor intercambia strings decimales (`"250.50"`). No hay `double` en el flujo.
 - **Una base por usuario** (`finanzas_<userId>`): outbox, cursor y datos nunca se mezclan entre cuentas.
 - **Escribir solo por `LocalStore`:** cada cambio sella `client_updated_at` y deja su renglón en la outbox en una sola transacción.
-- **`StampClock`:** sellos con 6 decimales y **estrictamente crecientes**; el motor distingue "edité mientras se enviaba" comparando sellos.
+- **`StampClock`:** sellos con 6 decimales y **estrictamente crecientes**; el motor distingue "edité mientras se enviaba" comparando sellos. Al arrancar restaura el desfase de reloj y no emite sellos menores al mayor ya guardado.
+- **`maybe_sent`:** la outbox marca (de forma persistente, antes de enviar) lo que pudo llegar al servidor; un borrado posterior deja tombstone y se envía, en vez de eliminar la fila y dejar que el servidor la resucite.
 - **Sesión guardada = confianza sin red:** al abrir la app no se consulta al servidor; el primer login sí requiere internet.
 - **Modo demo (`DEMO_MODE`)** es solo para revisar pantallas; nunca en producción.
 
@@ -74,7 +75,7 @@ test/              core · sync (motor, con SQLite en memoria) · features (inte
 
 ## Pendiente (siguientes pasos)
 
-- Paso 4: pantallas de negocio, disparo automático del sync (al abrir, al recuperar red, tras escribir) y UX de errores de sync (transacciones huérfanas, outbox bloqueada).
+- Paso 4: pantallas de negocio, disparo automático del sync (al abrir, al recuperar red, tras escribir), **sesión expirada (401)** sin perder datos locales y UX de errores de sync (transacciones huérfanas, outbox bloqueada).
 - **Web con base local:** requiere copiar `sqlite3.wasm` y `drift_worker.js` a `web/`; hoy la web solo sirve para el modo demo.
 - iOS: se agrega la plataforma cuando haya Mac/CI para compilarla.
 - Pruebas de interfaz con la base real en dispositivo (hoy se prueban con SQLite en memoria).

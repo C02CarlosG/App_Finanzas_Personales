@@ -34,8 +34,11 @@ class ApiClient {
     Map<String, String>? query,
     Object? body,
   }) async {
-    final uri = Uri.parse(baseUrl).replace(
-      path: path,
+    // Conserva el prefijo de ruta de la URL base (p. ej. https://host/api).
+    final base = Uri.parse(baseUrl);
+    final basePath = base.path.endsWith('/') ? base.path.substring(0, base.path.length - 1) : base.path;
+    final uri = base.replace(
+      path: '$basePath$path',
       queryParameters: (query == null || query.isEmpty) ? null : query,
     );
     final request = http.Request(method, uri)
@@ -49,7 +52,9 @@ class ApiClient {
 
     final http.Response response;
     try {
-      response = await http.Response.fromStream(await _http.send(request).timeout(timeout));
+      // El tiempo límite cubre petición **y** cuerpo: un cuerpo que se estanca no debe colgar
+      // el ciclo de sync (el candado de un solo ciclo quedaría tomado para siempre).
+      response = await (() async => http.Response.fromStream(await _http.send(request)))().timeout(timeout);
     } on TimeoutException {
       throw const ApiException.network('El servidor tardó demasiado en responder');
     } on http.ClientException {
@@ -61,6 +66,10 @@ class ApiClient {
 
     final decoded = _decode(response.body);
     if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (decoded == null && response.body.trim().isNotEmpty) {
+        // 2xx con un cuerpo que no es un objeto JSON (p. ej. una página de un proxy): no es una respuesta de la API.
+        throw ApiException(status: response.statusCode, code: 'bad_response', message: 'Respuesta inesperada del servidor');
+      }
       return decoded ?? <String, dynamic>{};
     }
     throw ApiException(
