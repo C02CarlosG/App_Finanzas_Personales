@@ -15,6 +15,7 @@ app.use('/accounts', auth, require('./routes/accounts'));
 app.use('/categories', auth, require('./routes/categories'));
 app.use('/transactions', auth, require('./routes/transactions'));
 app.use('/dashboard', auth, require('./routes/dashboard'));
+app.use('/sync', auth, require('./routes/sync'));
 
 app.use((_req, _res, next) => next(notFound('Ruta')));
 app.use(errorHandler);

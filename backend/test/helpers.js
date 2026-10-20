@@ -6,6 +6,7 @@ if (!url || !/_test(\?|$)/.test(url)) {
 process.env.DATABASE_URL = url;
 process.env.JWT_SECRET = 'secreto-solo-para-pruebas';
 process.env.BCRYPT_ROUNDS = '4';
+process.env.SYNC_SAFETY_LAG_MS = '0';
 
 const request = require('supertest');
 const app = require('../src/app');
