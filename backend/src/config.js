@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+// Una variable vacía o no numérica cae al valor por defecto (Number('') sería 0 y apagaría el margen).
+const envNumber = (raw, fallback) => (raw !== undefined && raw.trim() !== '' && Number.isFinite(Number(raw)) ? Number(raw) : fallback);
+
 const config = {
   port: Number(process.env.PORT) || 3000,
   databaseUrl: process.env.DATABASE_URL,
@@ -8,8 +11,7 @@ const config = {
   bcryptRounds: Number(process.env.BCRYPT_ROUNDS) || 10,
   // El pull no entrega cambios más recientes que este margen: cubre transacciones en vuelo
   // cuyo updated_at (inicio de transacción) es anterior al de otras ya confirmadas.
-  syncSafetyLagMs: Number.isFinite(Number(process.env.SYNC_SAFETY_LAG_MS)) && process.env.SYNC_SAFETY_LAG_MS !== undefined
-    ? Number(process.env.SYNC_SAFETY_LAG_MS) : 5000,
+  syncSafetyLagMs: envNumber(process.env.SYNC_SAFETY_LAG_MS, 5000),
 };
 
 module.exports = config;

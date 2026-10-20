@@ -326,3 +326,165 @@ test('dinero: se normaliza a 2 decimales y nunca pasa por float', async () => {
   const { rows } = await pool.query('SELECT sum(amount)::text AS s FROM transactions');
   assert.equal(rows[0].s, '0.30');
 });
+
+// ---------- Correcciones de la revisión adversarial ----------
+
+const soon = (ms) => new Date(Date.now() + ms).toISOString();
+const catData = (name, kind = 'expense') => ({ kind, name });
+
+test('borrar y recrear una categoría con el mismo nombre en un lote funciona (segundo pase)', async () => {
+  const { u } = await setupDevice();
+  const accId = uid(); const oldCat = uid(); const newCat = uid(); const txId = uid();
+  await push(u, [change('categories', oldCat, catData('Comida'), at('08:00:00.000')), change('accounts', accId, acct(), at('08:00:00.000'))]).expect(200);
+  const res = await push(u, [
+    change('categories', newCat, catData('Comida'), at('09:00:00.000')),
+    remove('categories', oldCat),
+    change('transactions', txId, txn(accId, newCat), at('09:00:00.000')),
+  ]).expect(200);
+  assert.deepEqual(res.body.results.map((r) => r.status), ['applied', 'applied', 'applied']);
+  assert.equal((await u.get(`/transactions/${txId}`).expect(200)).body.category_id, newCat);
+  const alive = (await u.get('/categories?kind=expense').expect(200)).body.data.filter((c) => c.name === 'Comida');
+  assert.deepEqual(alive.map((c) => c.id), [newCat]);
+});
+
+test('renombrar a un nombre que el mismo lote libera, y alta + renombre cruzados, no dependen del orden', async () => {
+  const { u } = await setupDevice();
+  const x = uid(); const y = uid(); const a = uid(); const b = uid();
+  await push(u, [change('categories', x, catData('Comida'), at('08:00:00.000')), change('categories', y, catData('Alimentos'), at('08:00:00.000')),
+    change('categories', a, catData('Antojos'), at('08:00:00.000'))]).expect(200);
+  // Y→'Comida' mientras X ('Comida') se borra en el mismo lote
+  const r1 = await push(u, [change('categories', y, catData('Comida'), soon(1000)), remove('categories', x)]).expect(200);
+  assert.deepEqual(r1.body.results.map((r) => r.status), ['applied', 'applied']);
+  // alta B 'Antojos' + renombre A 'Antojos'→'Antojos viejos', en ambos órdenes de llegada
+  for (const order of ['alta-primero', 'renombre-primero']) {
+    const aId = uid(); const bId = uid(); const name = `Nombre ${order}`;
+    await push(u, [change('categories', aId, catData(name), at('08:00:00.000'))]).expect(200);
+    const alta = change('categories', bId, catData(name), at('09:00:00.000'));
+    const renombre = change('categories', aId, catData(`${name} viejo`), soon(2000));
+    const res = await push(u, order === 'alta-primero' ? [alta, renombre] : [renombre, alta]).expect(200);
+    assert.ok(res.body.results.every((r) => r.status === 'applied'), `${order}: ${JSON.stringify(res.body.results.map((r) => r.status))}`);
+  }
+  assert.ok(a);
+});
+
+test('mover transacciones a una categoría nueva del mismo nombre y borrar la vieja: la vieja sobrevive (in_use) y el cliente fusiona', async () => {
+  const { u } = await setupDevice();
+  const accId = uid(); const oldCat = uid(); const newCat = uid(); const txId = uid();
+  await push(u, [change('categories', oldCat, catData('Comida'), at('08:00:00.000')), change('accounts', accId, acct(), at('08:00:00.000'))]).expect(200);
+  await push(u, [change('transactions', txId, txn(accId, oldCat), at('08:30:00.000'))]).expect(200);
+  const res = await push(u, [
+    change('categories', newCat, catData('Comida'), at('09:00:00.000')),
+    change('transactions', txId, txn(accId, newCat), soon(1000)),
+    remove('categories', oldCat),
+  ]).expect(200);
+  const [cat, tx, del] = res.body.results;
+  assert.deepEqual([cat.status, cat.code, cat.conflicting_id], ['rejected', 'duplicate_name', oldCat]);
+  assert.equal(cat.record, null); // alta nunca llegó al servidor → el cliente fusiona
+  assert.equal(tx.code, 'invalid_reference');
+  assert.deepEqual([del.status, del.code], ['rejected', 'in_use']);
+  assert.equal((await u.get(`/transactions/${txId}`).expect(200)).body.category_id, oldCat);
+});
+
+test('renombrar una categoría ya sincronizada a un nombre ocupado devuelve record (el cliente NO la borra)', async () => {
+  const { u } = await setupDevice();
+  const keep = uid(); const other = uid();
+  await push(u, [change('categories', keep, catData('Mascotas'), at('08:00:00.000')), change('categories', other, catData('Viajes'), at('08:00:00.000'))]).expect(200);
+  const res = await push(u, [change('categories', keep, catData('viajes'), soon(1000))]).expect(200);
+  const r = res.body.results[0];
+  assert.deepEqual([r.status, r.code, r.conflicting_id], ['rejected', 'duplicate_name', other]);
+  assert.equal(r.record.id, keep);
+  assert.equal(r.record.name, 'Mascotas');
+});
+
+test('dos pushes concurrentes del mismo alta: uno aplica y el otro adopta (stale), nunca duplicate_name contra sí mismo', async () => {
+  const { u } = await setupDevice();
+  for (let round = 0; round < 5; round += 1) {
+    const id = uid();
+    const body = [change('categories', id, catData(`Concurrente ${round}`), at('08:00:00.000'))];
+    const [a, b] = await Promise.all([push(u, body), push(u, body)]);
+    assert.equal(a.status, 200); assert.equal(b.status, 200);
+    const statuses = [a.body.results[0].status, b.body.results[0].status].sort();
+    assert.deepEqual(statuses, ['applied', 'stale'], JSON.stringify([a.body.results, b.body.results]));
+  }
+});
+
+test('carrera: borrar una cuenta mientras otro lote crea una transacción sobre ella nunca deja una transacción viva en cuenta borrada', async () => {
+  const { u, expenseCat } = await setupDevice();
+  for (let round = 0; round < 12; round += 1) {
+    const accId = uid(); const txId = uid();
+    await push(u, [change('accounts', accId, acct(), at('08:00:00.000'))]).expect(200);
+    const [del, add] = await Promise.all([
+      push(u, [remove('accounts', accId)]),
+      push(u, [change('transactions', txId, txn(accId, expenseCat), at('09:00:00.000'))]),
+    ]);
+    assert.equal(del.status, 200); assert.equal(add.status, 200);
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM transactions t JOIN accounts a ON a.id = t.account_id
+       WHERE t.id = $1 AND t.deleted_at IS NULL AND a.deleted_at IS NOT NULL`, [txId]);
+    assert.equal(rows[0].n, 0, `ronda ${round}: ${JSON.stringify([del.body.results, add.body.results])}`);
+  }
+});
+
+test('lotes que se solapan en distinto orden no se bloquean entre sí (sin 500 por deadlock)', async () => {
+  const { u } = await setupDevice();
+  const ids = Array.from({ length: 6 }, uid);
+  await push(u, ids.map((id) => change('accounts', id, acct(), at('08:00:00.000')))).expect(200);
+  for (let round = 0; round < 6; round += 1) {
+    const edits = (list, tag) => list.map((id) => change('accounts', id, acct({ name: `${tag}${round}` }), soon(1000 + round * 10)));
+    const [a, b] = await Promise.all([push(u, edits(ids, 'A')), push(u, edits([...ids].reverse(), 'B'))]);
+    assert.equal(a.status, 200, JSON.stringify(a.body)); assert.equal(b.status, 200, JSON.stringify(b.body));
+  }
+});
+
+test('un lote que excede su presupuesto de tiempo se revierte completo con 503 batch_too_slow', async () => {
+  const { u } = await setupDevice();
+  const original = config.syncSafetyLagMs;
+  config.syncSafetyLagMs = 1; // presupuesto = 0.8 ms
+  try {
+    const res = await push(u, Array.from({ length: 20 }, () => change('accounts', uid(), acct(), at('08:00:00.000')))).expect(503);
+    assert.equal(res.body.code, 'batch_too_slow');
+  } finally { config.syncSafetyLagMs = original; }
+  assert.equal((await u.get('/accounts').expect(200)).body.data.length, 0);
+});
+
+test('cursor con fecha imposible da 400 (no 500)', async () => {
+  const { u } = await setupDevice();
+  const zero = '00000000-0000-0000-0000-000000000000';
+  for (const ts of ['2026-02-30T10:00:00.000000Z', '2026-13-01T10:00:00.000000Z', '0000-01-01T00:00:00.000000Z', '2026-10-20T25:00:00.000000Z']) {
+    const cursor = Buffer.from(JSON.stringify({ accounts: `${ts}|${zero}` })).toString('base64url');
+    const res = await pull(u, `?cursor=${cursor}`).expect(400);
+    assert.equal(res.body.code, 'invalid_cursor');
+  }
+});
+
+test('UUID en mayúsculas se canonicaliza: el reintento es idempotente y bank_id no dispara immutable_field', async () => {
+  const { u } = await setupDevice();
+  const id = uid();
+  const bankId = (await h.bankId()).toUpperCase();
+  const body = [change('accounts', id.toUpperCase(), { type: 'banco', bank_id: bankId, name: 'BBVA', initial_balance: '10' }, at('08:00:00.000'))];
+  const first = await push(u, body).expect(200);
+  assert.equal(first.body.results[0].status, 'applied');
+  assert.equal(first.body.results[0].id, id);
+  const retry = await push(u, body).expect(200);
+  assert.equal(retry.body.results[0].status, 'stale');
+  await push(u, [body[0], { ...body[0], id }]).expect(400); // el mismo id en mayúsculas y minúsculas cuenta como repetido
+});
+
+test('SYNC_SAFETY_LAG_MS vacío o inválido cae al valor por defecto, no a 0', () => {
+  const key = require.resolve('../src/config');
+  const cachedConfig = require.cache[key];
+  const saved = process.env.SYNC_SAFETY_LAG_MS;
+  try {
+    for (const raw of ['', '   ', 'abc']) {
+      process.env.SYNC_SAFETY_LAG_MS = raw;
+      delete require.cache[key];
+      assert.equal(require('../src/config').syncSafetyLagMs, 5000, `valor ${JSON.stringify(raw)}`);
+    }
+    process.env.SYNC_SAFETY_LAG_MS = '0';
+    delete require.cache[key];
+    assert.equal(require('../src/config').syncSafetyLagMs, 0);
+  } finally {
+    process.env.SYNC_SAFETY_LAG_MS = saved;
+    require.cache[key] = cachedConfig; // la app sigue usando el módulo original
+  }
+});

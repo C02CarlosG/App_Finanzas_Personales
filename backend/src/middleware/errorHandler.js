@@ -16,6 +16,9 @@ module.exports = (err, _req, res, _next) => {
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ error: 'JSON inválido', code: 'bad_json' });
   }
+  if (err.code === '40P01' || err.code === '55P03') {
+    return res.status(503).json({ error: 'Servidor ocupado; reintenta', code: 'retry_later' });
+  }
   if (err.code === '23505') return res.status(409).json({ error: 'Registro duplicado', code: 'conflict' });
   if (err.code === '23503') return res.status(409).json({ error: 'Referencia inválida', code: 'conflict' });
   console.error(err);

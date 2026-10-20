@@ -1,6 +1,9 @@
 // Registro de entidades sincronizables. Para sumar una tabla (Fase 2/3) basta con
 // agregarla aquí: esquema de datos, columnas, orden de dependencia y reglas de borrado.
-const { z, money, signedMoney, uuid, isoDate } = require('../utils/schemas');
+const { z, money, signedMoney, uuid: uuidAny, isoDate } = require('../utils/schemas');
+
+// Los UUID se canonicalizan a minúsculas (Postgres los devuelve así; comparar sin esto da falsos inmutables).
+const uuid = uuidAny.transform((v) => v.toLowerCase());
 
 // Timestamps con precisión de microsegundos (el driver pg los truncaría a milisegundos
 // y el cursor se repetiría). Se entregan como string ISO UTC.
@@ -72,7 +75,7 @@ const ENTITIES = {
     select: `t.id, t.type, t.bank_id, t.name, t.card_type, t.initial_balance, ${syncCols}`,
     async validateRefs(client, _userId, data, existing) {
       if (!existing && data.bank_id) {
-        const bank = await client.query('SELECT 1 FROM banks WHERE id = $1 AND deleted_at IS NULL', [data.bank_id]);
+        const bank = await client.query('SELECT 1 FROM banks WHERE id = $1 AND deleted_at IS NULL FOR SHARE', [data.bank_id]);
         if (!bank.rowCount) return invalidRef('Banco no existe en el catálogo');
       }
       return null;
@@ -93,9 +96,9 @@ const ENTITIES = {
     schema: transactionData,
     select: `t.id, t.type, t.amount, t.account_id, t.category_id, t.occurred_on, t.description, t.counterparty, ${syncCols}`,
     async validateRefs(client, userId, data) {
-      const acc = await client.query('SELECT 1 FROM accounts WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL', [data.account_id, userId]);
+      const acc = await client.query('SELECT 1 FROM accounts WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR SHARE', [data.account_id, userId]);
       if (!acc.rowCount) return invalidRef('Cuenta no encontrada o eliminada');
-      const cat = await client.query('SELECT kind FROM categories WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL', [data.category_id, userId]);
+      const cat = await client.query('SELECT kind FROM categories WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR SHARE', [data.category_id, userId]);
       if (!cat.rowCount) return invalidRef('Categoría no encontrada o eliminada');
       if (cat.rows[0].kind !== data.type) return { code: 'category_kind_mismatch', message: 'La categoría no corresponde al tipo de transacción' };
       return null;
@@ -104,6 +107,9 @@ const ENTITIES = {
     async blockDelete() { return null; },
   },
 };
+
+// FOR SHARE en las lecturas de padres: un borrado concurrente del padre espera a que este lote
+// termine y entonces ve la transacción nueva (→ in_use), en lugar de dejarla viva sobre un padre borrado.
 
 // Tablas de solo lectura para el cliente (catálogo global, sin user_id).
 const READONLY_CATALOGS = {

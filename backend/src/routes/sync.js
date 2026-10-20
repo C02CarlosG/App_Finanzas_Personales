@@ -3,7 +3,7 @@ const config = require('../config');
 const { pool, withTransaction } = require('../db/pool');
 const validate = require('../middleware/validate');
 const { AppError } = require('../utils/errors');
-const { z, uuid } = require('../utils/schemas');
+const { z, uuid: uuidAny } = require('../utils/schemas');
 const { ENTITIES, READONLY_CATALOGS, PULL_ORDER } = require('../sync/entities');
 const cursor = require('../sync/cursor');
 const { applyChanges } = require('../sync/push');
@@ -11,6 +11,16 @@ const { applyChanges } = require('../sync/push');
 const router = express.Router();
 
 const MAX_CHANGES = 200;
+const uuid = uuidAny.transform((v) => v.toLowerCase());
+
+// Un deadlock (40P01) es reintentable: PostgreSQL ya revirtió la transacción.
+async function withDeadlockRetry(fn, attempts = 3) {
+  for (let i = 1; ; i += 1) {
+    try { return await fn(); } catch (err) {
+      if (err.code !== '40P01' || i >= attempts) throw err;
+    }
+  }
+}
 
 const pushBody = z.object({
   changes: z.array(z.object({
@@ -35,7 +45,7 @@ const pullQuery = z.object({
 });
 
 router.post('/push', validate({ body: pushBody }), async (req, res) => {
-  const { results, serverNow } = await withTransaction((client) => applyChanges(client, req.userId, req.valid.body.changes));
+  const { results, serverNow } = await withDeadlockRetry(() => withTransaction((client) => applyChanges(client, req.userId, req.valid.body.changes)));
   res.json({ results, server_time: serverNow.toISOString() });
 });
 
