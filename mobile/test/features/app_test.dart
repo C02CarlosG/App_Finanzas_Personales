@@ -3,13 +3,19 @@ import 'dart:convert';
 import 'package:finanzas_personales/app.dart';
 import 'package:finanzas_personales/core/providers.dart';
 import 'package:finanzas_personales/core/storage/session_store.dart';
+import 'package:finanzas_personales/core/sync/sync_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import '../support/ui.dart';
+import '../sync/support.dart';
+
 const _session = Session(token: 't', userId: 'u1', email: 'ana@example.com', name: 'Ana');
+
+late Harness _h;
 
 http.Response _json(int status, Object body) => http.Response(jsonEncode(body), status);
 
@@ -36,7 +42,10 @@ Future<void> _pump(WidgetTester tester, {Session? stored, MockClient? client}) a
     overrides: [
       sessionStoreProvider.overrideWithValue(MemorySessionStore(stored)),
       httpClientProvider.overrideWithValue(mock),
-      databaseProvider.overrideWithValue(null), // sin SQLite real en pruebas de interfaz
+      databaseProvider.overrideWithValue(_h.db),
+      localStoreProvider.overrideWithValue(_h.store),
+      syncEngineProvider.overrideWithValue(null),
+      syncControllerProvider.overrideWith(() => StubSyncController(const SyncStatus(phase: SyncPhase.disabled))),
     ],
     child: const FinanzasApp(),
   ));
@@ -44,11 +53,15 @@ Future<void> _pump(WidgetTester tester, {Session? stored, MockClient? client}) a
 }
 
 void main() {
+  setUp(() => _h = Harness());
+  tearDown(() => _h.close());
+
   testWidgets('sin sesión se muestra el login', (tester) async {
     await _pump(tester);
     expect(find.text('Finanzas Personales'), findsOneWidget);
     expect(find.byKey(const Key('boton-enviar')), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
+    await finishApp(tester);
   });
 
   testWidgets('con una sesión guardada entra directo a Inicio (offline-first, sin red)', (tester) async {
@@ -56,6 +69,7 @@ void main() {
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byKey(const Key('saldo-total')), findsOneWidget);
     expect(find.text(r'$0.00'), findsOneWidget);
+    await finishApp(tester);
   });
 
   testWidgets('login correcto lleva a Inicio con las 5 secciones', (tester) async {
@@ -69,6 +83,7 @@ void main() {
     for (final label in ['Inicio', 'Bancos', 'Categorías', 'Reportes', 'Perfil']) {
       expect(find.descendant(of: find.byType(NavigationBar), matching: find.text(label)), findsOneWidget, reason: label);
     }
+    await finishApp(tester);
   });
 
   testWidgets('credenciales incorrectas muestran el error y siguen en el login', (tester) async {
@@ -80,6 +95,7 @@ void main() {
 
     expect(find.text('Correo o contraseña incorrectos'), findsOneWidget);
     expect(find.byType(NavigationBar), findsNothing);
+    await finishApp(tester);
   });
 
   testWidgets('sin conexión el login explica que se necesita internet la primera vez', (tester) async {
@@ -89,6 +105,7 @@ void main() {
     await tester.tap(find.byKey(const Key('boton-enviar')));
     await tester.pumpAndSettle();
     expect(find.textContaining('necesita internet'), findsOneWidget);
+    await finishApp(tester);
   });
 
   testWidgets('el formulario valida correo y contraseña antes de llamar a la API', (tester) async {
@@ -104,6 +121,7 @@ void main() {
     expect(find.text('Correo inválido'), findsOneWidget);
     expect(find.text('Mínimo 8 caracteres'), findsOneWidget);
     expect(calls, 0);
+    await finishApp(tester);
   });
 
   testWidgets('registro: pide nombre y entra a Inicio', (tester) async {
@@ -116,6 +134,7 @@ void main() {
     await tester.tap(find.byKey(const Key('boton-enviar')));
     await tester.pumpAndSettle();
     expect(find.byType(NavigationBar), findsOneWidget);
+    await finishApp(tester);
   });
 
   testWidgets('la barra inferior cambia de sección y conserva el estado de cada una', (tester) async {
@@ -126,15 +145,17 @@ void main() {
     }
 
     await goTo('Bancos');
-    expect(find.textContaining('cuentas bancarias'), findsOneWidget);
+    expect(find.byKey(const Key('sin-cuentas')), findsOneWidget);
     await goTo('Categorías');
-    expect(find.textContaining('editables'), findsOneWidget);
+    expect(find.text('Ingresos'), findsWidgets);
+    expect(find.text('Gastos'), findsWidgets);
     await goTo('Reportes');
     expect(find.textContaining('Ingresos contra gastos'), findsOneWidget);
     await goTo('Perfil');
     expect(find.text('ana@example.com'), findsOneWidget);
     await goTo('Inicio');
     expect(find.byKey(const Key('saldo-total')), findsOneWidget);
+    await finishApp(tester);
   });
 
   testWidgets('cerrar sesión regresa al login y borra la sesión guardada', (tester) async {
@@ -143,7 +164,13 @@ void main() {
     tester.view.devicePixelRatio = 2;
     addTearDown(tester.view.reset);
     await tester.pumpWidget(ProviderScope(
-      overrides: [sessionStoreProvider.overrideWithValue(store), databaseProvider.overrideWithValue(null)],
+      overrides: [
+        sessionStoreProvider.overrideWithValue(store),
+        databaseProvider.overrideWithValue(_h.db),
+        localStoreProvider.overrideWithValue(_h.store),
+        syncEngineProvider.overrideWithValue(null),
+        syncControllerProvider.overrideWith(() => StubSyncController(const SyncStatus(phase: SyncPhase.disabled))),
+      ],
       child: const FinanzasApp(),
     ));
     await tester.pumpAndSettle();
@@ -155,5 +182,6 @@ void main() {
 
     expect(find.byKey(const Key('boton-enviar')), findsOneWidget);
     expect(await store.read(), isNull);
+    await finishApp(tester);
   });
 }
