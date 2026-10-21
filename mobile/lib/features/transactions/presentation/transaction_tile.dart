@@ -20,10 +20,11 @@ class TransactionTile extends StatelessWidget {
     final scheme = theme.colorScheme;
     final title = (tx.description?.isNotEmpty ?? false) ? tx.description! : (tx.categoryName ?? 'Sin categoría');
     final person = (tx.counterparty?.isNotEmpty ?? false) ? ' · ${tx.counterparty}' : '';
+    // La fecha va primero: si el texto se recorta, lo último en perderse es la cuenta, no la fecha.
     final subtitle = [
+      showYear ? formatDate(tx.occurredOn) : formatDateShort(tx.occurredOn),
       tx.categoryName ?? 'Sin categoría',
       tx.accountName ?? 'Sin cuenta',
-      showYear ? formatDate(tx.occurredOn) : formatDateShort(tx.occurredOn),
     ].join(' · ');
     final amountColor = tx.isIncome ? (theme.brightness == Brightness.dark ? const Color(0xFF81C784) : incomeColor) : scheme.error;
 

@@ -1,6 +1,6 @@
 # PROGRESS
 
-_Última actualización: 2026-10-20 (Paso 3)_
+_Última actualización: 2026-10-21 (Paso 4)_
 
 ## Fase y paso actuales
 **Fase 1 – Paso 3 (Scaffold Flutter) terminado, en revisión (PR `paso-3-flutter`, apilado sobre `paso-2-sync`/PR #1).** Siguiente: Paso 4 (Fase 1 en móvil).
@@ -15,10 +15,12 @@ _Última actualización: 2026-10-20 (Paso 3)_
 
 - 2026-10-20 – **Paso 3**: `mobile/` con Flutter 3.47: estructura por features, Riverpod, go_router (barra inferior de 5 secciones y redirección por sesión), login/registro funcional, drift/SQLite (espejo del servidor + outbox, una base por usuario), `Money` en centavos, `ApiClient`, `LocalStore` y **motor de sync** (push→pull) probado con SQLite en memoria y **contra el backend real con dos dispositivos simulados** (6 pruebas e2e). CI en verde: `backend`, `mobile` (analyze + pruebas + e2e con Postgres) y `mobile-demo` (APK de depuración y web demo como artefactos; **el build de Android quedó confirmado**).
 - 2026-10-20 – **Revisión adversarial del Paso 3** (3 revisores + 2 verificadores por hallazgo, 25 agentes): 11 candidatos, 0 refutados; corregidos 10 (≈8 defectos distintos): respuesta de push perdida + borrado posterior resucitaba el registro (ahora `maybe_sent` persistente en la outbox), comprobación de "edición en vuelo" dentro de la misma transacción (en `_adopt` y en la fusión de categorías), desfase de reloj y sello mínimo restaurados al arrancar, timeout de red que cubre el cuerpo, respuesta 2xx no JSON, prefijo de ruta de `API_BASE_URL`, y `allowBackup=false` en Android. El 11.º (401 sin manejo) quedó en disputa por no ser alcanzable aún: se hará en el Paso 4. Flutter: **70 pruebas** (64 + 6 e2e con API real); cada arreglo se comprobó desactivándolo y viendo fallar su prueba.
+- 2026-10-21 – PR #1 (sync) y #2 (app Flutter) **fusionados en `main`** con CI en verde.
+- 2026-10-21 – **Paso 4**: (4a) consultas reactivas, repositorios con reglas de negocio, `SyncController` (arranque, debounce, volver a la app, cada 5 min, retroceso), **401 → sesión expirada sin perder datos** y reingreso, banner y pantalla de problemas de sync; (4b) Bancos con selector visual y cuentas de banco/efectivo; (4c) Categorías; (4d) formulario de ingreso/gasto (con "crear banco" desde el formulario y persona en "Préstamo cobrado") e Inicio con datos reales; (4e) Movimientos con pestañas Ingresos|Gastos, mes, filtros categoría/cuenta y búsqueda; modo demo con base local y datos de ejemplo; web con base local (`sqlite3.wasm` + `drift_worker.js`). **153 pruebas Flutter** (7 e2e contra la API real). Las pruebas cazaron 3 defectos de interfaz (desplegable desbordado, cuenta preseleccionada que no se guardaba, orden de bancos sensible a mayúsculas).
 
 ## Qué sigue (en orden)
-1. Revisar y aprobar los PR #1 (Paso 2) y del Paso 3.
-2. Paso 4 – Fase 1 en móvil: bancos (selector con logos), cuentas de efectivo, agregar ingreso/gasto, listados con filtros, dashboard con datos reales y disparo automático del sync. **Obligatorio en este paso:** manejo de sesión expirada (401) conservando la base local y la outbox, UX de transacciones huérfanas y de outbox bloqueada.
+1. Revisar y aprobar el PR del Paso 4.
+2. Paso 5 – Fase 2: backend + móvil de préstamos, suscripciones y pagos de tarjeta (el esquema SQL ya existe; faltan `client_updated_at`, endpoints, entidades de sync y pantallas; Gastos suma sub-pestañas en Movimientos).
 4. Paso 4 – Fase 1 en móvil.
 5. Paso 5 – Fase 2 (préstamos, suscripciones, tarjetas): endpoints y móvil. El esquema ya existe.
 6. Paso 6 – Fase 3 (reportes, presupuestos, alertas).
@@ -34,6 +36,7 @@ _Última actualización: 2026-10-20 (Paso 3)_
 - **Borrado por sync** respeta las mismas reglas que REST (cuenta/categoría con transacciones → `in_use`); el dispositivo "resucita" el registro al adoptar la versión del servidor.
 - **Sync, endurecimiento**: bloqueo previo de filas propias en orden fijo + reintento por deadlock; `FOR SHARE` en padres; segundo pase para `duplicate_name`/`invalid_reference`; presupuesto de tiempo por lote = 80 % del margen (si no, `503 batch_too_slow` y el cliente divide el lote). El cliente debe: un solo ciclo de sync a la vez, base local por usuario, lotes en orden padre→hijo, página de pull = una transacción local con su cursor, corregir su reloj con `server_time`.
 - **Móvil (Paso 3)**: Riverpod 3 (estado/DI), go_router, drift (SQLite), `http`, `flutter_secure_storage`, `uuid`. Dinero = `Money` (centavos enteros). Una base SQLite por usuario. Escrituras solo por `LocalStore` (sella `client_updated_at` y encola en la outbox en una transacción). `StampClock` garantiza sellos estrictamente crecientes. La sesión guardada se confía sin red; el primer login requiere internet. `DEMO_MODE` (solo desarrollo) salta el login para revisar pantallas. Android: `minSdk 24`, permiso INTERNET en release, HTTP en claro solo en debug. Código generado de drift (`*.g.dart`) no se versiona: se genera con `build_runner`.
+- **Móvil (Paso 4)**: listados en la pantalla **Movimientos** (Inicio → "Ver todos", pestañas Ingresos|Gastos; decisión tuya del 2026-10-21); filtro por **cuenta** (incluye efectivo) en lugar de solo banco; pestaña por defecto Gastos; sync sin `connectivity_plus` (reintento con retroceso); fechas y dinero sin `intl`; selector de fecha es-MX con `flutter_localizations` (SDK); `DEMO_MODE` siembra datos de ejemplo en la base local; logos de bancos: iniciales + color de marca, con `assets/banks/<logo_key>.png` opcional.
 - **Pruebas**: BD aparte `*_test` obligatoria; el helper se niega a correr contra otra.
 
 ## Problemas abiertos / dudas para ti
@@ -43,7 +46,10 @@ _Última actualización: 2026-10-20 (Paso 3)_
 4. Sin límite de intentos de login ni recuperación de contraseña aún (a considerar en Fase 4).
 5. **Transacción huérfana** (solo si el padre ya llegó como tombstone; mientras esté pendiente, el cliente reintenta) (otro dispositivo borró la cuenta/categoría mientras este creaba una transacción offline): el servidor responde `invalid_reference`; la UX para reasignar o descartar se define en el Paso 4.
 6. **Tombstones** nunca se purgan; definir retención y `410 resync_required` en Fase 4.
-7. **Web con base local** necesita `sqlite3.wasm` y `drift_worker.js` en `web/` (hoy la web solo sirve en modo demo). **iOS** se agrega después.
+7. **Web**: `sqlite3.wasm` y `drift_worker.js` ya están en `web/` (deben coincidir con las versiones de `pubspec.lock`). **iOS** se agrega después.
+7b. **Logos reales de bancos**: no hay assets en el repo (marcas); las iniciales con color son el sustituto. Si los quieres, coloca los PNG en `mobile/assets/banks/`.
+7c. **Búsqueda y orden sin acentos** ("cafe" no halla "Café"): pendiente de normalización.
+7d. **Moneda**: sigue fija en MXN (tu decisión pendiente: ¿configurable más adelante?).
 8. **APK**: no se compila localmente (sin Android SDK en el entorno); lo compila el CI (`mobile-demo`, en verde). Es un APK de **depuración en modo demo**; un build de producción necesita firma (keystore) y decidir HTTPS/dominio de la API.
 8b. **Esquema local sin migraciones aún**: `schemaVersion = 1` y se modifica la tabla directamente mientras no haya usuarios reales. Antes del primer lanzamiento hay que congelar la versión y escribir migraciones.
 9. LWW por registro pierde ediciones concurrentes de campos distintos (aceptado); si molesta, evaluar resolución por campo.

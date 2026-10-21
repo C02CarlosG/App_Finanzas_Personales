@@ -52,7 +52,7 @@ Future<void> seedDemoData(AppDatabase db, {DateTime? now}) async {
   final accounts = {
     'nomina': (uuid.v4(), 'banco', bankIds['bbva'], 'Nómina BBVA', 'debito', 1200000),
     'credito': (uuid.v4(), 'banco', bankIds['santander'], 'Santander Crédito', 'credito', -350000),
-    'efectivo': (uuid.v4(), 'efectivo', null, 'Efectivo', null, 80000),
+    'efectivo': (uuid.v4(), 'efectivo', null, 'Efectivo', null, 600000),
   };
   for (final (id, type, bankId, name, card, initial) in accounts.values) {
     await db.into(db.accounts).insert(AccountsCompanion.insert(

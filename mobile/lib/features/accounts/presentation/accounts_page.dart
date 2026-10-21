@@ -64,7 +64,7 @@ class _AccountTile extends StatelessWidget {
   final AccountView account;
 
   static String kindLabel(AccountView a) {
-    if (a.isCash) return 'Efectivo';
+    if (a.isCash) return 'Efectivo en mano';
     final card = switch (a.cardType) { 'debito' => 'Débito', 'credito' => 'Crédito', _ => null };
     return card == null ? (a.bankName ?? 'Banco') : '${a.bankName ?? 'Banco'} · $card';
   }
