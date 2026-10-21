@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/providers.dart';
+import '../../../core/router/app_router.dart';
 
 /// Inicio de sesión y registro. La navegación a Inicio la hace el router al cambiar la sesión.
 class LoginPage extends ConsumerStatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.reauth = false});
+
+  /// Sesión expirada: se vuelve a pedir la contraseña del mismo usuario sin tocar sus datos locales.
+  final bool reauth;
 
   @override
   ConsumerState<LoginPage> createState() => _LoginPageState();
@@ -20,6 +25,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _registering = false;
   bool _busy = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.reauth) _email.text = ref.read(authControllerProvider).value?.email ?? '';
+  }
 
   @override
   void dispose() {
@@ -42,6 +53,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       } else {
         await auth.login(email: _email.text.trim(), password: _password.text);
       }
+      if (widget.reauth && mounted) context.go(AppRoutes.home);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = _messageFor(e));
     } finally {
@@ -61,6 +73,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
+      appBar: widget.reauth ? AppBar(title: const Text('Sesión expirada')) : null,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -90,6 +103,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     TextFormField(
                       key: const Key('campo-correo'),
                       controller: _email,
+                      readOnly: widget.reauth,
                       decoration: const InputDecoration(labelText: 'Correo'),
                       keyboardType: TextInputType.emailAddress,
                       textInputAction: TextInputAction.next,
@@ -116,6 +130,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                           : Text(_registering ? 'Crear cuenta' : 'Entrar'),
                     ),
+                    if (!widget.reauth)
                     TextButton(
                       onPressed: _busy ? null : () => setState(() => _registering = !_registering),
                       child: Text(_registering ? 'Ya tengo cuenta' : 'Crear una cuenta'),

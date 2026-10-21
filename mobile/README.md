@@ -76,6 +76,6 @@ test/              core · sync (motor, con SQLite en memoria) · features (inte
 ## Pendiente (siguientes pasos)
 
 - Paso 4: pantallas de negocio, disparo automático del sync (al abrir, al recuperar red, tras escribir), **sesión expirada (401)** sin perder datos locales y UX de errores de sync (transacciones huérfanas, outbox bloqueada).
-- **Web con base local:** requiere copiar `sqlite3.wasm` y `drift_worker.js` a `web/`; hoy la web solo sirve para el modo demo.
+- **Web con base local:** `web/sqlite3.wasm` (sqlite3 3.7.1, de [sqlite3.dart](https://github.com/simolus3/sqlite3.dart/releases)) y `web/drift_worker.js` (drift 2.35.2, de [drift](https://github.com/simolus3/drift/releases)) deben coincidir con las versiones de `pubspec.lock`. Si se actualiza drift/sqlite3, hay que volver a descargarlos.
 - iOS: se agrega la plataforma cuando haya Mac/CI para compilarla.
 - Pruebas de interfaz con la base real en dispositivo (hoy se prueban con SQLite en memoria).

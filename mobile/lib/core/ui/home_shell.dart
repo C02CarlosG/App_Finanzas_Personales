@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/sync/presentation/sync_banner.dart';
+
 /// Barra de navegación inferior (spec 5.1): Inicio, Bancos, Categorías, Reportes, Perfil.
 class HomeShell extends StatelessWidget {
   const HomeShell({super.key, required this.shell});
@@ -21,11 +23,17 @@ class HomeShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: shell,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: shell.currentIndex,
-        destinations: destinations,
-        // Tocar la pestaña activa vuelve a su raíz.
-        onDestinationSelected: (i) => shell.goBranch(i, initialLocation: i == shell.currentIndex),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SyncBanner(),
+          NavigationBar(
+            selectedIndex: shell.currentIndex,
+            destinations: destinations,
+            // Tocar la pestaña activa vuelve a su raíz.
+            onDestinationSelected: (i) => shell.goBranch(i, initialLocation: i == shell.currentIndex),
+          ),
+        ],
       ),
     );
   }

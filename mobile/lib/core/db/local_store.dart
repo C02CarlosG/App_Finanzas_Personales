@@ -12,11 +12,15 @@ const syncEntities = ['categories', 'accounts', 'transactions'];
 ///
 /// Las pantallas escriben **solo** por aquí; nunca directo a las tablas.
 class LocalStore {
-  LocalStore(this.db, this.clock, {bool Function()? isSyncing}) : _isSyncing = isSyncing ?? (() => false);
+  LocalStore(this.db, this.clock, {bool Function()? isSyncing, this._onChanged})
+      : _isSyncing = isSyncing ?? (() => false);
 
   final AppDatabase db;
   final StampClock clock;
   final bool Function() _isSyncing;
+
+  /// Se avisa tras confirmar cada escritura local (el sync automático se programa desde aquí).
+  final void Function()? _onChanged;
   Future<void>? _clockReady;
 
   /// Antes del primer sello de la sesión: restaura el desfase de reloj aprendido y garantiza que
@@ -58,6 +62,7 @@ class LocalStore {
       ));
       await enqueue('categories', id, stamp);
     });
+    _onChanged?.call();
   }
 
   Future<void> saveAccount({
@@ -82,6 +87,7 @@ class LocalStore {
       ));
       await enqueue('accounts', id, stamp);
     });
+    _onChanged?.call();
   }
 
   Future<void> saveTransaction({
@@ -110,6 +116,7 @@ class LocalStore {
       ));
       await enqueue('transactions', id, stamp);
     });
+    _onChanged?.call();
   }
 
   /// Borra un registro. Se elimina físicamente (y se quita de la outbox) solo si **nunca pudo
@@ -131,6 +138,7 @@ class LocalStore {
       await _markDeleted(entity, id, stamp);
       await enqueue(entity, id, stamp, deleted: true);
     });
+    _onChanged?.call();
   }
 
   /// Deja (o reemplaza) el renglón de la outbox del registro: un solo renglón por registro.

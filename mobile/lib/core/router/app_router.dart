@@ -7,6 +7,7 @@ import '../../features/auth/presentation/login_page.dart';
 import '../../features/categories/presentation/categories_page.dart';
 import '../../features/dashboard/presentation/dashboard_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
+import '../../features/sync/presentation/problems_page.dart';
 import '../../features/reports/presentation/reports_page.dart';
 import '../providers.dart';
 import '../ui/home_shell.dart';
@@ -14,6 +15,8 @@ import '../ui/home_shell.dart';
 abstract final class AppRoutes {
   static const loading = '/cargando';
   static const login = '/ingresar';
+  static const reauth = '/reingresar';
+  static const problems = '/problemas';
   static const home = '/inicio';
   static const banks = '/bancos';
   static const categories = '/categorias';
@@ -42,6 +45,8 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: AppRoutes.loading, builder: (_, _) => const _Splash()),
       GoRoute(path: AppRoutes.login, builder: (_, _) => const LoginPage()),
+      GoRoute(path: AppRoutes.reauth, builder: (_, _) => const LoginPage(reauth: true)),
+      GoRoute(path: AppRoutes.problems, builder: (_, _) => const ProblemsPage()),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => HomeShell(shell: shell),
         branches: [
