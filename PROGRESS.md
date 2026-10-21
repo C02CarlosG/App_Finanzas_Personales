@@ -3,7 +3,7 @@
 _Última actualización: 2026-10-21 (Paso 4)_
 
 ## Fase y paso actuales
-**Fase 1 – Paso 3 (Scaffold Flutter) terminado, en revisión (PR `paso-3-flutter`, apilado sobre `paso-2-sync`/PR #1).** Siguiente: Paso 4 (Fase 1 en móvil).
+**Fase 1 – Paso 4 (Fase 1 en móvil) terminado, en revisión (PR `paso-4-fase1-movil`).** Los PR #1 (Paso 2) y #2 (Paso 3) ya están en `main`. Siguiente: Paso 5 (préstamos, suscripciones, tarjetas).
 
 ## Qué está hecho
 - 2026-10-20 – Monorepo creado: `backend/`, `mobile/`, `docs/`, CI, `.gitignore`, `README.md`.
