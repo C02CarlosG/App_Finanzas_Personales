@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/data/data_providers.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/db/queries.dart';
 import '../../../core/providers.dart';
+import '../../../core/router/app_router.dart';
+import '../../categories/presentation/category_editor.dart';
 import 'sync_messages.dart';
 
 /// Cambios que el servidor rechazó o que no se han podido enviar. El usuario los revisa o elimina.
@@ -48,6 +51,13 @@ class _ProblemTile extends ConsumerWidget {
           Text(syncErrorMessage(entry.lastError, blocked: entry.blocked)),
           const SizedBox(height: 8),
           Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+            if (!entry.deleted)
+              TextButton.icon(
+                key: Key('editar-${entry.recordId}'),
+                onPressed: () => _edit(context, ref),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Editar'),
+              ),
             TextButton.icon(
               key: Key('eliminar-${entry.recordId}'),
               onPressed: () => _confirmDelete(context, ref),
@@ -58,6 +68,20 @@ class _ProblemTile extends ConsumerWidget {
         ]),
       ),
     );
+  }
+
+  /// Abre la pantalla de edición del registro; al guardar, el cambio vuelve a la cola (y se desbloquea).
+  Future<void> _edit(BuildContext context, WidgetRef ref) async {
+    switch (entry.entity) {
+      case 'transactions':
+        await context.push(AppRoutes.transaction(entry.recordId));
+      case 'accounts':
+        await context.push(AppRoutes.account(entry.recordId));
+      case 'categories':
+        final db = ref.read(databaseProvider);
+        final row = await (db?.select(db.categories)?..where((c) => c.id.equals(entry.recordId)))?.getSingleOrNull();
+        if (row != null && context.mounted) await showCategoryEditor(context, kind: row.kind, category: row);
+    }
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {

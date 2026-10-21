@@ -11,6 +11,7 @@ import '../../features/dashboard/presentation/dashboard_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
 import '../../features/sync/presentation/problems_page.dart';
 import '../../features/reports/presentation/reports_page.dart';
+import '../../features/transactions/presentation/movements_page.dart';
 import '../../features/transactions/presentation/transaction_form_page.dart';
 import '../providers.dart';
 import '../ui/home_shell.dart';
@@ -58,6 +59,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: AppRoutes.problems, builder: (_, _) => const ProblemsPage()),
       // Pantallas completas (sin barra inferior) alcanzables desde cualquier pestaña.
       GoRoute(path: AppRoutes.accountNew, builder: (_, _) => const AddAccountPage()),
+      GoRoute(
+        path: AppRoutes.movements,
+        builder: (_, state) => MovementsPage(initialTab: state.uri.queryParameters['tab'] == 'ingresos' ? 0 : 1),
+      ),
       // '/movimientos/nuevo' va antes que '/movimientos/:id' para que no se tome "nuevo" como un id.
       GoRoute(
         path: AppRoutes.transactionNewPath,
