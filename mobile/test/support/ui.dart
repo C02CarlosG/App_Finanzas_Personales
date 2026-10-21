@@ -82,3 +82,16 @@ Future<void> settleDb(WidgetTester tester) async {
   await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
   await tester.pumpAndSettle();
 }
+
+/// Escribe en el campo identificado por [key] (sirve también para widgets que envuelven un TextFormField).
+Future<void> enter(WidgetTester tester, Key key, String text) async {
+  final field = find.descendant(of: find.byKey(key), matching: find.byType(EditableText));
+  await tester.enterText(field.evaluate().isEmpty ? find.byKey(key) : field, text);
+}
+
+/// Toca un widget por clave, haciéndolo visible antes (formularios largos).
+Future<void> tapKey(WidgetTester tester, Key key) async {
+  await tester.ensureVisible(find.byKey(key));
+  await tester.tap(find.byKey(key));
+  await tester.pumpAndSettle();
+}

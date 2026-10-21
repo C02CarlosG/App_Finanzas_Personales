@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/accounts/presentation/accounts_page.dart';
+import '../../features/accounts/presentation/add_account_page.dart';
+import '../../features/accounts/presentation/edit_account_page.dart';
 import '../../features/auth/presentation/login_page.dart';
 import '../../features/categories/presentation/categories_page.dart';
 import '../../features/dashboard/presentation/dashboard_page.dart';
@@ -17,6 +19,8 @@ abstract final class AppRoutes {
   static const login = '/ingresar';
   static const reauth = '/reingresar';
   static const problems = '/problemas';
+  static const accountNew = '/cuentas/nueva';
+  static String account(String id) => '/cuentas/$id';
   static const home = '/inicio';
   static const banks = '/bancos';
   static const categories = '/categorias';
@@ -47,6 +51,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: AppRoutes.login, builder: (_, _) => const LoginPage()),
       GoRoute(path: AppRoutes.reauth, builder: (_, _) => const LoginPage(reauth: true)),
       GoRoute(path: AppRoutes.problems, builder: (_, _) => const ProblemsPage()),
+      // Pantallas completas (sin barra inferior) alcanzables desde cualquier pestaña.
+      GoRoute(path: AppRoutes.accountNew, builder: (_, _) => const AddAccountPage()),
+      GoRoute(
+        path: '/cuentas/:id',
+        builder: (_, state) => EditAccountPage(accountId: state.pathParameters['id']!),
+      ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, shell) => HomeShell(shell: shell),
         branches: [
