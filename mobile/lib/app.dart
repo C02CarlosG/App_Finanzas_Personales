@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
@@ -36,6 +37,9 @@ class _FinanzasAppState extends ConsumerState<FinanzasApp> {
     return MaterialApp.router(
       title: 'Finanzas Personales',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('es', 'MX'),
+      supportedLocales: const [Locale('es', 'MX')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       theme: ThemeData(colorSchemeSeed: const Color(0xFF1B7F5C), useMaterial3: true),
       darkTheme: ThemeData(
           colorSchemeSeed: const Color(0xFF1B7F5C), brightness: Brightness.dark, useMaterial3: true),

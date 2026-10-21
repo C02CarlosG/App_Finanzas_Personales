@@ -11,6 +11,7 @@ import '../../features/dashboard/presentation/dashboard_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
 import '../../features/sync/presentation/problems_page.dart';
 import '../../features/reports/presentation/reports_page.dart';
+import '../../features/transactions/presentation/transaction_form_page.dart';
 import '../providers.dart';
 import '../ui/home_shell.dart';
 
@@ -21,6 +22,10 @@ abstract final class AppRoutes {
   static const problems = '/problemas';
   static const accountNew = '/cuentas/nueva';
   static String account(String id) => '/cuentas/$id';
+  static const movements = '/movimientos';
+  static const transactionNewPath = '/movimientos/nuevo';
+  static String transactionNew(String type) => '/movimientos/nuevo?tipo=$type';
+  static String transaction(String id) => '/movimientos/$id';
   static const home = '/inicio';
   static const banks = '/bancos';
   static const categories = '/categorias';
@@ -53,6 +58,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: AppRoutes.problems, builder: (_, _) => const ProblemsPage()),
       // Pantallas completas (sin barra inferior) alcanzables desde cualquier pestaña.
       GoRoute(path: AppRoutes.accountNew, builder: (_, _) => const AddAccountPage()),
+      // '/movimientos/nuevo' va antes que '/movimientos/:id' para que no se tome "nuevo" como un id.
+      GoRoute(
+        path: AppRoutes.transactionNewPath,
+        builder: (_, state) =>
+            TransactionFormPage(type: state.uri.queryParameters['tipo'] == 'income' ? 'income' : 'expense'),
+      ),
+      GoRoute(
+        path: '/movimientos/:id',
+        builder: (_, state) => TransactionFormPage(transactionId: state.pathParameters['id']),
+      ),
       GoRoute(
         path: '/cuentas/:id',
         builder: (_, state) => EditAccountPage(accountId: state.pathParameters['id']!),
