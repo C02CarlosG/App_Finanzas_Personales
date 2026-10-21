@@ -6,10 +6,10 @@ types.setTypeParser(1082, (v) => v);
 
 const pool = new Pool({ connectionString: config.databaseUrl });
 
-async function withTransaction(fn) {
+async function withTransaction(fn, beginSql = 'BEGIN') {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    await client.query(beginSql);
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
