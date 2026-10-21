@@ -35,3 +35,95 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm test
+
+  mobile:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: finanzas
+          POSTGRES_PASSWORD: finanzas
+          POSTGRES_DB: finanzas_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finanzas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Backend real para la prueba de extremo a extremo del cliente de sync.
+      DATABASE_URL: postgres://finanzas:finanzas@localhost:5432/finanzas_e2e
+      JWT_SECRET: ci-e2e-secret
+      SYNC_SAFETY_LAG_MS: "0"
+      PORT: "3111"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Backend (migrar y arrancar)
+        working-directory: backend
+        run: |
+          npm ci
+          npm run migrate
+          node src/server.js &
+          for i in $(seq 1 30); do curl -sf localhost:3111/health && break || sleep 1; done
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+      - name: Dependencias y código generado
+        working-directory: mobile
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - name: Análisis estático
+        working-directory: mobile
+        run: flutter analyze
+      - name: Pruebas (unitarias, de interfaz y e2e contra la API real)
+        working-directory: mobile
+        env:
+          E2E_API_URL: http://localhost:3111
+        run: flutter test
+
+  mobile-demo:
+    # APK y web en MODO DEMO (sin login ni servidor) para revisar las pantallas. No es un build de producción.
+    needs: mobile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+      - name: Dependencias y código generado
+        working-directory: mobile
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - name: APK de depuración (demo)
+        working-directory: mobile
+        run: flutter build apk --debug --dart-define=DEMO_MODE=true
+      - name: Web (demo)
+        working-directory: mobile
+        run: flutter build web --release --dart-define=DEMO_MODE=true --no-web-resources-cdn
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finanzas-demo-apk
+          path: mobile/build/app/outputs/flutter-apk/app-debug.apk
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: finanzas-demo-web
+          path: mobile/build/web
+          retention-days: 14

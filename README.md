@@ -20,7 +20,7 @@ La especificación funcional está en [`docs/app-finanzas-personales-spec.md`](d
 
 ```
 backend/   API Express + esquema PostgreSQL + pruebas
-mobile/    App Flutter (pendiente)
+mobile/    App Flutter (Riverpod + drift/SQLite + sync offline-first)
 docs/      Especificación y documentos de diseño
 PROGRESS.md  Estado, decisiones y siguientes pasos
 ```
@@ -36,6 +36,10 @@ npm install
 npm run migrate             # crea el esquema y siembra el catálogo de bancos
 npm start                   # API en http://localhost:3000
 ```
+
+## Correr la app móvil
+
+Ver [`mobile/README.md`](mobile/README.md) (comandos, estructura y decisiones).
 
 ## Pruebas
 
