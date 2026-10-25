@@ -8,6 +8,7 @@ import 'network/api_client.dart';
 import 'storage/session_store.dart';
 import 'sync/stamp.dart';
 import 'sync/sync_api.dart';
+import 'sync/sync_signal.dart';
 import 'sync/sync_engine.dart';
 import '../features/auth/data/auth_repository.dart';
 
@@ -63,7 +64,7 @@ class AuthController extends AsyncNotifier<Session?> {
 }
 
 /// Base local del usuario con sesión; se cierra al cambiar de usuario o cerrar sesión.
-/// `null` sin sesión o en modo demo (sin servidor no hay nada que persistir).
+/// `null` sin sesión. En modo demo `main()` la reemplaza por una base de ejemplo ya sembrada.
 final databaseProvider = Provider<AppDatabase?>((ref) {
   final session = ref.watch(authControllerProvider.select((s) => s.value));
   if (session == null || AppConfig.demoMode) return null;
@@ -74,20 +75,36 @@ final databaseProvider = Provider<AppDatabase?>((ref) {
 
 final stampClockProvider = Provider<StampClock>((ref) => StampClock());
 
-final syncEngineProvider = Provider<SyncEngine?>((ref) {
-  final db = ref.watch(databaseProvider);
-  if (db == null) return null;
-  final clock = ref.watch(stampClockProvider);
-  late final SyncEngine engine;
-  final store = LocalStore(db, clock, isSyncing: () => engine.isSyncing);
-  engine = SyncEngine(db: db, api: HttpSyncApi(ref.watch(apiClientProvider)), store: store, clock: clock);
-  return engine;
-});
+/// Señal compartida entre el store, el motor y el controlador de sync (ver `SyncSignal`).
+final syncSignalProvider = Provider<SyncSignal>((ref) => SyncSignal());
 
-/// Punto único de escritura local (pantallas → aquí, nunca directo a las tablas).
+/// Punto único de escritura local (pantallas → repositorios → aquí, nunca directo a las tablas).
+/// Tras cada escritura avisa al controlador de sync por la señal; no depende de él.
 final localStoreProvider = Provider<LocalStore?>((ref) {
   final db = ref.watch(databaseProvider);
   if (db == null) return null;
-  final engine = ref.watch(syncEngineProvider);
-  return LocalStore(db, ref.watch(stampClockProvider), isSyncing: () => engine?.isSyncing ?? false);
+  final signal = ref.watch(syncSignalProvider);
+  return LocalStore(
+    db,
+    ref.watch(stampClockProvider),
+    isSyncing: () => signal.isSyncing(),
+    onChanged: () => signal.onLocalChange(),
+  );
+});
+
+/// Sin motor (`null`) no se sincroniza: sin sesión o en modo demo (no hay servidor).
+final syncEngineProvider = Provider<SyncEngine?>((ref) {
+  final db = ref.watch(databaseProvider);
+  final store = ref.watch(localStoreProvider);
+  if (db == null || store == null || AppConfig.demoMode) return null;
+  final engine = SyncEngine(
+    db: db,
+    api: HttpSyncApi(ref.watch(apiClientProvider)),
+    store: store,
+    clock: ref.watch(stampClockProvider),
+  );
+  final signal = ref.watch(syncSignalProvider);
+  signal.isSyncing = () => engine.isSyncing;
+  ref.onDispose(() => signal.isSyncing = () => false);
+  return engine;
 });

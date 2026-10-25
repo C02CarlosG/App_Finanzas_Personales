@@ -1,83 +1,115 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/data/data_providers.dart';
+import '../../../core/db/queries.dart';
 import '../../../core/money/money.dart';
+import '../../../core/router/app_router.dart';
+import '../../../core/sync/sync_controller.dart';
+import '../../transactions/presentation/transaction_tile.dart';
 
-/// Inicio (spec 5.2). Estructura final de la pantalla; los datos reales llegan en el Paso 4.
-class DashboardPage extends StatelessWidget {
+const _recentFilter = TransactionFilter(limit: 10);
+
+/// Inicio (spec 5.2): saldo total, botones de ingreso/gasto y últimos movimientos.
+class DashboardPage extends ConsumerWidget {
   const DashboardPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final total = ref.watch(totalBalanceProvider).value ?? Money.zero;
+    final accounts = ref.watch(accountsProvider);
+    final recent = ref.watch(transactionsProvider(_recentFilter));
+
     return Scaffold(
       appBar: AppBar(title: const Text('Inicio')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            color: theme.colorScheme.primaryContainer,
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Saldo total', style: theme.textTheme.titleMedium),
-                  const SizedBox(height: 8),
-                  Text(Money.zero.format(),
-                      key: const Key('saldo-total'), style: theme.textTheme.displaySmall),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () => _soon(context),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Agregar ingreso'),
+      body: RefreshIndicator(
+        onRefresh: () => ref.read(syncControllerProvider.notifier).syncNow(),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Card(
+              color: theme.colorScheme.primaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Saldo total', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    // El saldo grande se reduce en vez de partirse en dos líneas con texto del sistema muy grande.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(total.format(),
+                          key: const Key('saldo-total'),
+                          style: theme.textTheme.displaySmall?.copyWith(color: total.isNegative ? theme.colorScheme.error : null)),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: () => _soon(context),
-                  icon: const Icon(Icons.remove),
-                  label: const Text('Agregar gasto'),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    key: const Key('agregar-ingreso'),
+                    onPressed: () => context.push(AppRoutes.transactionNew('income')),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Agregar ingreso'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    key: const Key('agregar-gasto'),
+                    onPressed: () => context.push(AppRoutes.transactionNew('expense')),
+                    icon: const Icon(Icons.remove),
+                    label: const Text('Agregar gasto'),
+                  ),
+                ),
+              ],
+            ),
+            if (accounts.hasValue && accounts.value!.isEmpty) ...[
+              const SizedBox(height: 12),
+              Card(
+                key: const Key('invitacion-cuenta'),
+                child: ListTile(
+                  leading: const Icon(Icons.account_balance),
+                  title: const Text('Agrega tu primera cuenta'),
+                  subtitle: const Text('Un banco o efectivo, para registrar tus movimientos.'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push(AppRoutes.accountNew),
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 24),
-          const _Section(title: 'Últimas transacciones', empty: 'Aún no hay movimientos'),
-          const SizedBox(height: 16),
-          const _Section(title: 'Suscripciones y pagos próximos', empty: 'Nada pendiente'),
-        ],
+            const SizedBox(height: 24),
+            Row(children: [
+              Expanded(child: Text('Últimas transacciones', style: theme.textTheme.titleMedium)),
+              TextButton(key: const Key('ver-todos'), onPressed: () => context.push(AppRoutes.movements), child: const Text('Ver todos')),
+            ]),
+            recent.when(
+              loading: () => const Padding(padding: EdgeInsets.all(16), child: Center(child: CircularProgressIndicator())),
+              error: (e, _) => Text('No se pudieron cargar los movimientos: $e'),
+              data: (list) => list.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text('Aún no hay movimientos',
+                          key: const Key('sin-movimientos'), style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline)),
+                    )
+                  : Column(children: [
+                      for (final t in list) TransactionTile(tx: t, onTap: () => context.push(AppRoutes.transaction(t.id))),
+                    ]),
+            ),
+            const SizedBox(height: 16),
+            Text('Suscripciones y pagos próximos', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text('Nada pendiente', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline)),
+          ],
+        ),
       ),
-    );
-  }
-
-  void _soon(BuildContext context) => ScaffoldMessenger.of(context)
-      .showSnackBar(const SnackBar(content: Text('Disponible en el Paso 4')));
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.empty});
-
-  final String title;
-  final String empty;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: theme.textTheme.titleMedium),
-        const SizedBox(height: 8),
-        Text(empty, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline)),
-      ],
     );
   }
 }

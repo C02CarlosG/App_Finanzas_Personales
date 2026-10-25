@@ -14,7 +14,10 @@ import 'package:finanzas_personales/core/network/api_client.dart';
 import 'package:finanzas_personales/core/sync/stamp.dart';
 import 'package:finanzas_personales/core/sync/sync_api.dart';
 import 'package:finanzas_personales/core/sync/sync_engine.dart';
+import 'package:finanzas_personales/features/accounts/data/accounts_repository.dart';
 import 'package:finanzas_personales/features/auth/data/auth_repository.dart';
+import 'package:finanzas_personales/features/categories/data/categories_repository.dart';
+import 'package:finanzas_personales/features/transactions/data/transactions_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -197,5 +200,37 @@ void main() {
     final row = await (a.db.select(a.db.accounts)..where((t) => t.id.equals(acc))).getSingle();
     expect(row.deletedAt, isNull);
     expect(await a.db.select(a.db.syncOutbox).get(), isEmpty);
+  });
+
+  test('lo que crean los repositorios de la app (reglas locales) lo acepta el backend y el saldo coincide', () async {
+    await a.sync(); // baja bancos y categorías del servidor
+    final accounts = AccountsRepository(a.store);
+    final categories = CategoriesRepository(a.store);
+    final transactions = TransactionsRepository(a.store);
+
+    final bank = (await a.db.select(a.db.banks).get()).firstWhere((b) => b.logoKey == 'bbva');
+    final acc = await accounts.createBankAccount(bankId: bank.id, cardType: 'debito', initialBalance: Money.parse('2500.40'));
+    final cash = await accounts.createCashAccount(initialBalance: Money.parse('-100'));
+    final cat = await categories.create(kind: 'expense', name: 'Mascotas', color: '#C62828');
+    final loan = (await a.db.select(a.db.categories).get()).firstWhere((c) => c.name == 'Préstamo cobrado');
+    final t1 = await transactions.add(type: 'expense', amount: Money.parse('300.15'), accountId: acc, categoryId: cat, occurredOn: '2026-10-19', description: '  Croquetas ');
+    final t2 = await transactions.add(
+        type: 'income', amount: Money.parse('1000'), accountId: cash, categoryId: loan.id, occurredOn: '2026-10-19', counterparty: 'Luis Pérez');
+    final t3 = await transactions.add(type: 'expense', amount: Money.parse('5'), accountId: cash, categoryId: cat, occurredOn: '2026-10-19');
+    await transactions.update(t3, type: 'expense', amount: Money.parse('7.50'), accountId: cash, categoryId: cat, occurredOn: '2026-10-20');
+    await transactions.delete(t3);
+    await a.sync();
+
+    expect(await a.db.select(a.db.syncOutbox).get(), isEmpty, reason: 'el servidor aceptó todo');
+    expect((await a.api.get('/accounts/$acc'))['balance'], '2200.25'); // 2500.40 − 300.15
+    expect((await a.api.get('/accounts/$cash'))['balance'], '900.00'); // −100 + 1000
+    final server1 = await a.api.get('/transactions/$t1');
+    expect([server1['description'], server1['amount']], ['Croquetas', '300.15']);
+    expect((await a.api.get('/transactions/$t2'))['counterparty'], 'Luis Pérez');
+    await expectLater(a.api.get('/transactions/$t3'), throwsA(isA<Object>())); // eliminado en el servidor (404)
+
+    await b.sync();
+    expect((await b.tx(t1)).amountCents, 30015); // y el otro dispositivo lo recibe
+    expect((await b.db.select(b.db.categories).get()).any((c) => c.id == cat && c.color == '#C62828'), isTrue);
   });
 }

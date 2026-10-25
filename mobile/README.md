@@ -3,8 +3,9 @@
 App de Finanzas Personales. **Offline-first**: la interfaz lee y escribe siempre en SQLite local y el motor de sincronización
 (`lib/core/sync`) la reconcilia con la API según [`docs/sync.md`](../docs/sync.md).
 
-Estado: **Paso 3 (scaffold)**. Hay login/registro, barra inferior con las 5 secciones, capa de datos local, cliente HTTP y motor de
-sync probado contra el backend real. Las pantallas de negocio (bancos, transacciones, etc.) llegan en el Paso 4.
+Estado: **Paso 4 (Fase 1 en móvil)**. Login/registro, Bancos (selector visual, cuentas de banco y efectivo), Categorías, ingreso/gasto,
+Inicio con datos reales, Movimientos (filtros, búsqueda, total del mes), sync automático y sesión expirada. Reportes y Perfil
+completo llegan en pasos posteriores (6 y 7); préstamos, suscripciones y tarjetas en el Paso 5.
 
 ## Comandos
 
@@ -18,7 +19,7 @@ flutter test                                               # unitarias + interfa
 
 # Correr la app
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000   # emulador Android → API en el equipo
-flutter run --dart-define=DEMO_MODE=true                       # SOLO para ver pantallas: sin login ni servidor
+flutter run --dart-define=DEMO_MODE=true                       # SOLO desarrollo: base local con datos de ejemplo, sin login ni servidor
 ```
 
 **Prueba de extremo a extremo** (dos dispositivos simulados contra la API real):
@@ -45,9 +46,18 @@ lib/
     storage/       SessionStore (token en almacenamiento seguro)
     router/        go_router con redirección por sesión y barra inferior
     providers.dart Riverpod: sesión, base local, motor de sync
-  features/        auth · dashboard · accounts · categories · transactions · reports · profile
+  features/        auth · dashboard · accounts · categories · transactions (formulario y Movimientos) · sync (banner y problemas) · reports · profile
+  core/data/       repositorios con reglas de negocio y providers reactivos; core/demo: datos de ejemplo (DEMO_MODE)
 test/              core · sync (motor, con SQLite en memoria) · features (interfaz) · e2e (API real)
 ```
+
+## Cómo funciona el sync automático
+
+`SyncController` (`core/sync/sync_controller.dart`) dispara el ciclo push→pull: al arrancar, 2 s después de la última escritura local
+(*debounce*), al volver a la app, cada 5 min y con reintentos con retroceso (30 s, 60 s… hasta 5 min) si falla. No usa
+`connectivity_plus`: un fallo de red se reintenta solo. Un **401** marca la sesión como expirada: se deja de reintentar, se conservan la
+base local y la outbox, y el banner lleva a reingresar con el mismo correo (el token nuevo reanuda el sync). Los cambios que el servidor
+rechaza se revisan en **Problemas de sincronización** (editar o eliminar).
 
 ## Decisiones
 
@@ -60,7 +70,11 @@ test/              core · sync (motor, con SQLite en memoria) · features (inte
 - **`StampClock`:** sellos con 6 decimales y **estrictamente crecientes**; el motor distingue "edité mientras se enviaba" comparando sellos. Al arrancar restaura el desfase de reloj y no emite sellos menores al mayor ya guardado.
 - **`maybe_sent`:** la outbox marca (de forma persistente, antes de enviar) lo que pudo llegar al servidor; un borrado posterior deja tombstone y se envía, en vez de eliminar la fila y dejar que el servidor la resucite.
 - **Sesión guardada = confianza sin red:** al abrir la app no se consulta al servidor; el primer login sí requiere internet.
-- **Modo demo (`DEMO_MODE`)** es solo para revisar pantallas; nunca en producción.
+- **Escribir solo por repositorios** (`features/*/data`): validan con las reglas del servidor (nombre único por tipo, cuenta/categoría en uso, monto > 0…) y escriben por `LocalStore`.
+- **Listados en pantalla Movimientos** (Inicio → "Ver todos"), con pestañas Ingresos | Gastos; la barra inferior queda como el spec. Filtro por **cuenta** (cubre banco y efectivo), no solo por banco.
+- **Logos de bancos:** `assets/banks/<logo_key>.png` si existe; si no, iniciales con el color de marca. Hoy no hay logos reales en el repo.
+- **Fechas y dinero sin `intl`:** `core/format/dates.dart` y `Money`/`parseMoneyInput` (acepta `$`, comas de miles y coma decimal). El selector de fecha va en es-MX con `flutter_localizations` (del SDK).
+- **Modo demo (`DEMO_MODE`)** siembra una base local de ejemplo y es solo para desarrollo; nunca en producción.
 
 ## Dependencias
 
@@ -72,10 +86,13 @@ test/              core · sync (motor, con SQLite en memoria) · features (inte
 | `http` | Cliente HTTP (suficiente para JSON + JWT) |
 | `flutter_secure_storage` | Guardar el JWT cifrado en el dispositivo |
 | `uuid` | UUID v4 generados en el dispositivo (ids de registros offline) |
+| `flutter_localizations` (SDK) | Selector de fecha y textos de Material en español |
+| `fake_async` (dev) | Probar temporizadores del sync (debounce, reintentos) con reloj simulado |
 
 ## Pendiente (siguientes pasos)
 
-- Paso 4: pantallas de negocio, disparo automático del sync (al abrir, al recuperar red, tras escribir), **sesión expirada (401)** sin perder datos locales y UX de errores de sync (transacciones huérfanas, outbox bloqueada).
-- **Web con base local:** requiere copiar `sqlite3.wasm` y `drift_worker.js` a `web/`; hoy la web solo sirve para el modo demo.
+- Paso 5: préstamos, suscripciones y tarjetas de crédito (Gastos sumará sus sub-pestañas).
+- **Búsqueda y orden sin acentos:** SQLite compara ASCII sin distinguir mayúsculas; "cafe" no encuentra "Café" y las letras acentuadas ordenan al final. Pendiente una normalización.
+- **Web con base local:** `web/sqlite3.wasm` (sqlite3 3.7.1, de [sqlite3.dart](https://github.com/simolus3/sqlite3.dart/releases)) y `web/drift_worker.js` (drift 2.35.2, de [drift](https://github.com/simolus3/drift/releases)) deben coincidir con las versiones de `pubspec.lock`. Si se actualiza drift/sqlite3, hay que volver a descargarlos.
 - iOS: se agrega la plataforma cuando haya Mac/CI para compilarla.
 - Pruebas de interfaz con la base real en dispositivo (hoy se prueban con SQLite en memoria).
