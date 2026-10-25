@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:finanzas_personales/core/network/api_exception.dart';
 import 'package:finanzas_personales/core/providers.dart';
 import 'package:finanzas_personales/core/storage/session_store.dart';
 import 'package:finanzas_personales/core/sync/sync_controller.dart';
+import 'package:finanzas_personales/core/sync/sync_engine.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart' show StateProvider;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support.dart';
@@ -156,6 +160,90 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(c.read(syncControllerProvider).phase, SyncPhase.error);
   });
+
+  test('una escritura hecha con un ciclo en vuelo provoca otro ciclo al terminar (no espera 5 min)', () async {
+    final gate = Completer<void>();
+    h.api.pullQueue.clear();
+    final api = _GatedPullApi(h.api, gate);
+    final engine = h.engineWith(api);
+    final c = ProviderContainer(overrides: [
+      sessionStoreProvider.overrideWithValue(MemorySessionStore(_session)),
+      databaseProvider.overrideWithValue(h.db),
+      localStoreProvider.overrideWithValue(h.store),
+      syncEngineProvider.overrideWithValue(engine),
+    ]);
+    addTearDown(c.dispose);
+    c.listen(syncControllerProvider, (_, _) {});
+    await Future<void>.delayed(const Duration(milliseconds: 30)); // el primer pull queda detenido en la compuerta
+    expect(engine.isSyncing, isTrue);
+
+    await h.store.saveCategory(id: 'cat-1', kind: 'expense', name: 'Nueva');
+    h.api.onPush = (changes) async => pushResponse([for (final x in changes) result(x, 'applied', record: okRecord(x))]);
+    final ctl = c.read(syncControllerProvider.notifier);
+    await ctl.syncNow(); // llega con el ciclo en vuelo: debe quedar anotado, no perderse
+    gate.complete();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(c.read(syncControllerProvider).phase, SyncPhase.idle);
+    await Future<void>.delayed(SyncController.debounce + const Duration(milliseconds: 300));
+    expect(h.api.pushes, isNotEmpty, reason: 'el cambio se envía sin esperar al ciclo periódico');
+    expect(await h.outbox(), isEmpty);
+  });
+
+  test('un ciclo del usuario anterior no contamina al controlador del usuario nuevo (401 tardío)', () async {
+    final late401 = Completer<void>();
+    final slowApi = _LateFailurePullApi(late401);
+    final engineA = h.engineWith(slowApi);
+    final engineProvider = StateProvider<SyncEngine?>((ref) => engineA);
+    final c = ProviderContainer(overrides: [
+      sessionStoreProvider.overrideWithValue(MemorySessionStore(_session)),
+      databaseProvider.overrideWithValue(h.db),
+      localStoreProvider.overrideWithValue(h.store),
+      syncEngineProvider.overrideWith((ref) => ref.watch(engineProvider)),
+    ]);
+    addTearDown(c.dispose);
+    c.listen(syncControllerProvider, (_, _) {});
+    await Future<void>.delayed(const Duration(milliseconds: 30)); // el ciclo de A queda en vuelo
+
+    c.read(engineProvider.notifier).state = h.engine; // inicia sesión otro usuario: motor nuevo
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(c.read(syncControllerProvider).phase, SyncPhase.idle); // el usuario nuevo sincroniza bien
+
+    late401.complete(); // la respuesta tardía (401) del ciclo de A llega ahora
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(c.read(syncControllerProvider).phase, SyncPhase.idle, reason: 'el 401 de A no debe expirar la sesión de B');
+  });
+}
+
+/// Detiene el primer pull hasta que se abra la compuerta.
+class _GatedPullApi extends FakeSyncApi {
+  _GatedPullApi(this._inner, this._gate);
+  final FakeSyncApi _inner;
+  final Completer<void> _gate;
+  var _first = true;
+
+  @override
+  Future<Map<String, dynamic>> push(List<Map<String, dynamic>> changes) => _inner.push(changes);
+
+  @override
+  Future<Map<String, dynamic>> pull({String? cursor, int limit = 500}) async {
+    if (_first) {
+      _first = false;
+      await _gate.future;
+    }
+    return pullPage();
+  }
+}
+
+/// El pull espera y luego falla con 401 (token vencido de otro usuario).
+class _LateFailurePullApi extends FakeSyncApi {
+  _LateFailurePullApi(this._gate);
+  final Completer<void> _gate;
+
+  @override
+  Future<Map<String, dynamic>> pull({String? cursor, int limit = 500}) async {
+    await _gate.future;
+    throw apiError('unauthorized', 401);
+  }
 }
 
 class _FailingPullApi extends FakeSyncApi {

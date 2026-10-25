@@ -8,7 +8,7 @@ import 'network/api_client.dart';
 import 'storage/session_store.dart';
 import 'sync/stamp.dart';
 import 'sync/sync_api.dart';
-import 'sync/sync_controller.dart';
+import 'sync/sync_signal.dart';
 import 'sync/sync_engine.dart';
 import '../features/auth/data/auth_repository.dart';
 
@@ -75,29 +75,36 @@ final databaseProvider = Provider<AppDatabase?>((ref) {
 
 final stampClockProvider = Provider<StampClock>((ref) => StampClock());
 
+/// Señal compartida entre el store, el motor y el controlador de sync (ver `SyncSignal`).
+final syncSignalProvider = Provider<SyncSignal>((ref) => SyncSignal());
+
 /// Punto único de escritura local (pantallas → repositorios → aquí, nunca directo a las tablas).
-/// Tras cada escritura programa el sync automático.
-final Provider<LocalStore?> localStoreProvider = Provider<LocalStore?>((ref) {
+/// Tras cada escritura avisa al controlador de sync por la señal; no depende de él.
+final localStoreProvider = Provider<LocalStore?>((ref) {
   final db = ref.watch(databaseProvider);
   if (db == null) return null;
+  final signal = ref.watch(syncSignalProvider);
   return LocalStore(
     db,
     ref.watch(stampClockProvider),
-    // Lecturas perezosas: el motor depende de este store y este store del motor.
-    isSyncing: () => ref.read(syncEngineProvider)?.isSyncing ?? false,
-    onChanged: () => ref.read(syncControllerProvider.notifier).scheduleSoon(),
+    isSyncing: () => signal.isSyncing(),
+    onChanged: () => signal.onLocalChange(),
   );
 });
 
 /// Sin motor (`null`) no se sincroniza: sin sesión o en modo demo (no hay servidor).
-final Provider<SyncEngine?> syncEngineProvider = Provider<SyncEngine?>((ref) {
+final syncEngineProvider = Provider<SyncEngine?>((ref) {
   final db = ref.watch(databaseProvider);
   final store = ref.watch(localStoreProvider);
   if (db == null || store == null || AppConfig.demoMode) return null;
-  return SyncEngine(
+  final engine = SyncEngine(
     db: db,
     api: HttpSyncApi(ref.watch(apiClientProvider)),
     store: store,
     clock: ref.watch(stampClockProvider),
   );
+  final signal = ref.watch(syncSignalProvider);
+  signal.isSyncing = () => engine.isSyncing;
+  ref.onDispose(() => signal.isSyncing = () => false);
+  return engine;
 });

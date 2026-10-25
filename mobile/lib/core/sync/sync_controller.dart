@@ -44,12 +44,21 @@ class SyncController extends Notifier<SyncStatus> {
   Timer? _retryTimer;
   Timer? _periodicTimer;
   int _failures = 0;
-  bool _disposed = false;
+
+  /// Hubo escrituras mientras corría un ciclo: al terminar hay que volver a sincronizar.
+  bool _dirty = false;
+
+  /// Generación del motor: build() la incrementa. Un ciclo que sigue en vuelo cuando cambia el motor
+  /// (logout, otro usuario) compara su generación y no toca el estado del usuario nuevo.
+  int _generation = 0;
 
   @override
   SyncStatus build() {
-    _disposed = false;
+    _generation += 1;
+    _failures = 0;
+    _dirty = false;
     final engine = ref.watch(syncEngineProvider);
+    final signal = ref.watch(syncSignalProvider);
 
     // Un nuevo token (reingreso tras 401) reanuda el sync sin reiniciar la app.
     ref.listen(authControllerProvider.select((s) => s.value?.token), (prev, next) {
@@ -61,13 +70,16 @@ class SyncController extends Notifier<SyncStatus> {
       }
     });
     ref.onDispose(() {
-      _disposed = true;
+      _generation += 1; // invalida cualquier ciclo en vuelo de este motor
       _debounceTimer?.cancel();
       _retryTimer?.cancel();
       _periodicTimer?.cancel();
+      _debounceTimer = _retryTimer = _periodicTimer = null;
+      signal.onLocalChange = () {};
     });
 
     if (engine == null) return const SyncStatus(phase: SyncPhase.disabled);
+    signal.onLocalChange = scheduleSoon; // cada escritura local programa un ciclo
     _startPeriodic();
     Future.microtask(syncNow);
     return const SyncStatus();
@@ -80,25 +92,35 @@ class SyncController extends Notifier<SyncStatus> {
 
   /// Programa un ciclo en unos segundos (varias escrituras seguidas se agrupan).
   void scheduleSoon() {
-    if (_disposed || state.phase == SyncPhase.disabled || state.phase == SyncPhase.sessionExpired) return;
+    if (ref.read(syncEngineProvider) == null || state.phase == SyncPhase.sessionExpired) return;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(debounce, () => unawaited(syncNow()));
   }
 
   Future<void> syncNow() async {
     final engine = ref.read(syncEngineProvider);
-    if (_disposed || engine == null || state.phase == SyncPhase.sessionExpired) return;
-    if (engine.isSyncing) return;
+    if (engine == null || state.phase == SyncPhase.sessionExpired) return;
+    if (engine.isSyncing) {
+      // Una escritura llegó con un ciclo en vuelo: ese ciclo puede no verla; se repite al terminar.
+      _dirty = true;
+      return;
+    }
+    final generation = _generation;
+    bool stale() => generation != _generation;
     _debounceTimer?.cancel();
     _retryTimer?.cancel();
     state = SyncStatus(phase: SyncPhase.syncing, lastSuccess: state.lastSuccess);
     try {
       await engine.run();
-      if (_disposed) return;
+      if (stale()) return;
       _failures = 0;
       state = SyncStatus(phase: SyncPhase.idle, lastSuccess: DateTime.now());
+      if (_dirty) {
+        _dirty = false;
+        scheduleSoon();
+      }
     } on ApiException catch (e) {
-      if (_disposed) return;
+      if (stale()) return;
       if (e.isUnauthorized) {
         _periodicTimer?.cancel();
         _retryTimer?.cancel();
@@ -107,7 +129,7 @@ class SyncController extends Notifier<SyncStatus> {
       }
       _fail(e.isNetwork ? SyncPhase.offline : SyncPhase.error, e.message);
     } catch (e) {
-      if (_disposed) return;
+      if (stale()) return;
       _fail(SyncPhase.error, '$e');
     }
   }
