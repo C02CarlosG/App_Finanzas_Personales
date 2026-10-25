@@ -177,7 +177,16 @@ void main() {
 
     await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Perfil')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cerrar sesión'));
+    await tester.tap(find.byKey(const Key('cerrar-sesion')));
+    await tester.pumpAndSettle();
+    // Pide confirmación; cancelar no cierra la sesión.
+    expect(find.byKey(const Key('dialogo-cerrar-sesion')), findsOneWidget);
+    await tester.tap(find.text('Cancelar'));
+    await tester.pumpAndSettle();
+    expect(await store.read(), isNotNull);
+    await tester.tap(find.byKey(const Key('cerrar-sesion')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirmar-cerrar-sesion')));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('boton-enviar')), findsOneWidget);

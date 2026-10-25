@@ -116,8 +116,8 @@ void main() {
       await pumpApp(tester, h); // sin cuentas
       await tester.tap(find.byKey(const Key('agregar-gasto')));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const Key('campo-cuenta-0-null')));
-      await tester.tap(find.byKey(const Key('campo-cuenta-0-null')));
+      await tester.ensureVisible(find.byKey(const Key('campo-cuenta-0-null-0')));
+      await tester.tap(find.byKey(const Key('campo-cuenta-0-null-0')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('+ Crear cuenta o banco nuevo').last);
       await tester.pumpAndSettle();
@@ -137,6 +137,26 @@ void main() {
       final accounts = (await tester.runAsync(() => h.db.select(h.db.accounts).get()))!;
       final row = (await tester.runAsync(() => h.db.select(h.db.transactions).getSingle()))!;
       expect(row.accountId, accounts.single.id);
+      await finishApp(tester);
+    });
+
+    testWidgets('cancelar "crear cuenta" no deja la opción seleccionada en el formulario', (tester) async {
+      await pumpApp(tester, h); // sin cuentas
+      await tester.tap(find.byKey(const Key('agregar-gasto')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const Key('campo-cuenta-0-null-0')));
+      await tester.tap(find.byKey(const Key('campo-cuenta-0-null-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('+ Crear cuenta o banco nuevo').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Agregar cuenta'), findsOneWidget);
+
+      await tester.tap(find.byType(BackButton)); // cancela sin crear nada
+      await tester.pumpAndSettle();
+
+      expect(find.text('Nuevo gasto'), findsOneWidget);
+      // El desplegable quedó vacío: la opción de crear no se queda como si fuera la cuenta elegida.
+      expect(find.text('+ Crear cuenta o banco nuevo'), findsNothing);
       await finishApp(tester);
     });
 

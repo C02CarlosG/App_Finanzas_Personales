@@ -217,4 +217,36 @@ void main() {
     expect(row.accountId, 'cash');
     await finishApp(tester);
   });
+
+  testWidgets('un movimiento cuya cuenta se eliminó en otro dispositivo se marca con advertencia en la lista', (tester) async {
+    await seed(tester);
+    await tester.runAsync(() => h.db.customStatement("UPDATE accounts SET deleted_at = '2026-10-05T00:00:00.000000Z' WHERE id = 'cash'"));
+    await openMovements(tester);
+    // g2 ('Café') estaba en la cuenta eliminada; g1 no.
+    expect(find.descendant(of: find.byKey(const Key('movimiento-g2')), matching: find.byIcon(Icons.warning_amber_rounded)), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('movimiento-g1')), matching: find.byIcon(Icons.warning_amber_rounded)), findsNothing);
+    await finishApp(tester);
+  });
+
+  testWidgets('con el texto del sistema al 200% las pantallas principales no se desbordan', (tester) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await seed(tester);
+    await pumpApp(tester, h);
+    expect(tester.takeException(), isNull, reason: 'Inicio');
+    for (final tab in ['Bancos', 'Categorías', 'Reportes', 'Perfil', 'Inicio']) {
+      await goToTab(tester, tab);
+      expect(tester.takeException(), isNull, reason: tab);
+    }
+    await tester.ensureVisible(find.byKey(const Key('ver-todos')));
+    await tester.pumpAndSettle(); // la geometría se actualiza en el siguiente cuadro
+    await tester.tap(find.byKey(const Key('ver-todos')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'Movimientos');
+    await tester.tap(find.byKey(const Key('agregar-movimiento')));
+    await tester.pumpAndSettle();
+    expect(find.text('Nuevo gasto'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: 'Formulario');
+    await finishApp(tester);
+  });
 }

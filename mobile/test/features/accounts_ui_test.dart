@@ -174,4 +174,15 @@ void main() {
       expect(bankColor(null), const Color(0xFF607D8B));
     });
   });
+
+  testWidgets('con el texto del sistema al 200% la rejilla de bancos no se desborda y se puede elegir', (tester) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await openBancos(tester);
+    await tapKey(tester, const Key('agregar-cuenta'));
+    expect(find.byKey(const Key('banco-bbva')), findsOneWidget);
+    await tapKey(tester, const Key('banco-bbva'));
+    expect(tester.takeException(), isNull); // un RenderFlex overflow aparecería aquí
+    await finishApp(tester);
+  });
 }

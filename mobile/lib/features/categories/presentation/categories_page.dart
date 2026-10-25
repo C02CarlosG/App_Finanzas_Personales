@@ -21,6 +21,7 @@ class CategoriesPage extends StatelessWidget {
             bottom: const TabBar(tabs: [Tab(text: 'Ingresos'), Tab(text: 'Gastos')]),
           ),
           floatingActionButton: FloatingActionButton.extended(
+            heroTag: null, // varias pantallas con FAB conviven (pestañas + rutas); sin etiqueta no chocan en la transición
             key: const Key('agregar-categoria'),
             onPressed: () => showCategoryEditor(context, kind: tabs.index == 0 ? 'income' : 'expense'),
             icon: const Icon(Icons.add),
@@ -66,10 +67,9 @@ class _CategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return ListTile(
       key: Key('categoria-${category.id}'),
-      leading: CircleAvatar(radius: 14, backgroundColor: categoryColorOf(category.color, scheme.outlineVariant)),
+      leading: CircleAvatar(radius: 14, backgroundColor: categoryDisplayColor(category.color, category.name)),
       title: Text(category.name),
       trailing: category.isSystem ? const Chip(label: Text('Sistema'), visualDensity: VisualDensity.compact) : null,
       onTap: () => showCategoryEditor(context, kind: category.kind, category: category),

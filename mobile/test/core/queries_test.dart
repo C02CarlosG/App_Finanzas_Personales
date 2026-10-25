@@ -121,6 +121,31 @@ void main() {
     expect((await h.db.watchBanks().first).map((b) => b.name), ['Banamex', 'BBVA México', 'Santander']);
   });
 
+  test('un movimiento cuya cuenta o categoría tiene tombstone se ve como huérfano (sin nombre del padre)', () async {
+    await basics();
+    await tx('t1', 'expense', '10', 'acc-cash', Catalog.comida, '2026-10-03', desc: 'Taco');
+    await tx('t2', 'expense', '20', 'acc-bbva', Catalog.comida, '2026-10-04', desc: 'Café');
+    // Simula lo que deja un pull: el servidor eliminó la cuenta/categoría en otro dispositivo.
+    await h.db.customStatement("UPDATE accounts SET deleted_at = '2026-10-05T00:00:00.000000Z' WHERE id = 'acc-cash'");
+    h.db.markTablesUpdated({h.db.accounts});
+    var list = await h.db.watchTransactions(const TransactionFilter()).first;
+    final taco = list.firstWhere((t) => t.id == 't1');
+    expect(taco.accountName, isNull);
+    expect(taco.isOrphan, isTrue);
+    expect(list.firstWhere((t) => t.id == 't2').isOrphan, isFalse);
+    expect((await h.db.findTransaction('t1'))!.isOrphan, isTrue);
+
+    await h.db.customStatement("UPDATE categories SET deleted_at = '2026-10-05T00:00:00.000000Z' WHERE id = '${Catalog.comida}'");
+    h.db.markTablesUpdated({h.db.categories}); // el SQL a mano no avisa a los streams de drift
+    await Future<void>.delayed(Duration.zero);
+    list = await h.db.watchTransactions(const TransactionFilter()).first;
+    expect(list.firstWhere((t) => t.id == 't2').categoryName, isNull);
+    expect(list.firstWhere((t) => t.id == 't2').isOrphan, isTrue);
+    // Siguen contando en los totales: el dinero ya se movió.
+    final totals = await h.db.watchTotals(const TransactionFilter()).first;
+    expect(totals.expense.toApiString(), '30.00');
+  });
+
   test('pendientes y problemas de la outbox', () async {
     await basics();
     expect(await h.db.watchPendingCount().first, 2);

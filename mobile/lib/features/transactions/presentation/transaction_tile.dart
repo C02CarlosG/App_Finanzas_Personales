@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/db/queries.dart';
 import '../../../core/format/dates.dart';
+import '../../../core/ui/fit_trailing.dart';
 import '../../categories/presentation/category_editor.dart';
 
 /// Renglón de un ingreso o gasto: categoría (con su color), descripción, cuenta, fecha e importe con signo.
@@ -33,27 +34,32 @@ class TransactionTile extends StatelessWidget {
       onTap: onTap,
       leading: CircleAvatar(
         radius: 18,
-        backgroundColor: categoryColorOf(tx.categoryColor, scheme.outlineVariant),
+        backgroundColor: categoryDisplayColor(tx.categoryColor, tx.categoryName),
         child: Icon(tx.isIncome ? Icons.south_west : Icons.north_east, size: 18, color: Colors.white),
       ),
       title: Text('$title$person', maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (tx.isOrphan)
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: Icon(Icons.warning_amber_rounded, size: 18, color: scheme.tertiary, semanticLabel: 'Falta la cuenta o la categoría'),
-          ),
-        if (tx.pending)
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: Icon(Icons.cloud_upload_outlined, size: 16, color: scheme.outline, semanticLabel: 'Pendiente de enviar'),
-          ),
-        Text(
-          '${tx.isIncome ? '+' : '-'}${tx.amount.format()}',
-          style: theme.textTheme.titleSmall?.copyWith(color: amountColor, fontWeight: FontWeight.w600),
+      trailing: FitTrailing(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (tx.isOrphan)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Icon(Icons.warning_amber_rounded, size: 18, color: scheme.tertiary, semanticLabel: 'Falta la cuenta o la categoría'),
+              ),
+            if (tx.pending)
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Icon(Icons.cloud_upload_outlined, size: 16, color: scheme.outline, semanticLabel: 'Pendiente de enviar'),
+              ),
+            Text(
+              '${tx.isIncome ? '+' : '-'}${tx.amount.format()}',
+              style: theme.textTheme.titleSmall?.copyWith(color: amountColor, fontWeight: FontWeight.w600),
+            ),
+          ],
         ),
-      ]),
+      ),
     );
   }
 }

@@ -38,9 +38,14 @@ class DashboardPage extends ConsumerWidget {
                   children: [
                     Text('Saldo total', style: theme.textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    Text(total.format(),
-                        key: const Key('saldo-total'),
-                        style: theme.textTheme.displaySmall?.copyWith(color: total.isNegative ? theme.colorScheme.error : null)),
+                    // El saldo grande se reduce en vez de partirse en dos líneas con texto del sistema muy grande.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(total.format(),
+                          key: const Key('saldo-total'),
+                          style: theme.textTheme.displaySmall?.copyWith(color: total.isNegative ? theme.colorScheme.error : null)),
+                    ),
                   ],
                 ),
               ),

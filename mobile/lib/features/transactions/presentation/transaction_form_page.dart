@@ -35,6 +35,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
   String? _categoryId;
   String? _accountId;
   late String _date = isoDate(DateTime.now());
+  int _accountFieldEpoch = 0; // fuerza reconstruir el desplegable de cuentas (p. ej. al cancelar "crear cuenta")
   bool _loading = false;
   bool _busy = false;
   String? _error;
@@ -95,7 +96,12 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     }
     // Spec 5.3: crear un banco nuevo sin salir del formulario; la cuenta creada queda seleccionada.
     final id = await context.push<String>(AppRoutes.accountNew);
-    if (id != null && mounted) setState(() => _accountId = id);
+    if (!mounted) return;
+    setState(() {
+      // Al cancelar, el desplegable se queda mostrando "+ Crear…" y bloquearía el guardado: se reconstruye.
+      if (id != null) _accountId = id;
+      _accountFieldEpoch += 1;
+    });
   }
 
   /// Con una sola cuenta se preselecciona (lo más común); con varias, el usuario elige.
@@ -200,7 +206,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                key: ValueKey('campo-cuenta-${accounts.length}-$accountId'),
+                key: ValueKey('campo-cuenta-${accounts.length}-$accountId-$_accountFieldEpoch'),
                 isExpanded: true,
                 initialValue: accountId,
                 decoration: const InputDecoration(labelText: 'Cuenta'),

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/data/data_providers.dart';
 import '../../../core/data/validation_exception.dart';
+import '../../../core/db/app_database.dart';
 import '../../../core/money/money.dart';
 import '../../../core/ui/money_form_field.dart';
 import 'bank_avatar.dart';
@@ -94,26 +95,13 @@ class _AddAccountPageState extends ConsumerState<AddAccountPage> {
                     key: Key('sin-catalogo-bancos'),
                   )
                 else
-                  GridView.count(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    crossAxisCount: 4,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                    childAspectRatio: 0.82,
-                    children: [
-                      for (final b in banks)
-                        _BankTile(
-                          key: Key('banco-${b.logoKey}'),
-                          name: b.name,
-                          logoKey: b.logoKey,
-                          selected: b.id == _bankId,
-                          onTap: () => setState(() {
-                            _bankId = b.id;
-                            _error = null;
-                          }),
-                        ),
-                    ],
+                  _BankGrid(
+                    banks: banks,
+                    selectedId: _bankId,
+                    onSelect: (b) => setState(() {
+                      _bankId = b.id;
+                      _error = null;
+                    }),
                   ),
                 const SizedBox(height: 16),
               ],
@@ -161,6 +149,44 @@ class _AddAccountPageState extends ConsumerState<AddAccountPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Rejilla de bancos. La altura de cada celda sigue la escala de texto del sistema (el nombre ocupa hasta
+/// dos líneas); con texto muy grande baja a 3 columnas para que los nombres no se corten.
+class _BankGrid extends StatelessWidget {
+  const _BankGrid({required this.banks, required this.selectedId, required this.onSelect});
+
+  final List<BankRow> banks;
+  final String? selectedId;
+  final void Function(BankRow) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = MediaQuery.textScalerOf(context).scale(1);
+    final lineHeight = MediaQuery.textScalerOf(context).scale(11) * 1.5; // Material pone ~1.43 de interlineado
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: scale > 1.3 ? 3 : 4,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        // borde 1+1, relleno 6+6, avatar 40, separación 4, dos líneas de nombre y un poco de holgura
+        mainAxisExtent: 2 + 12 + 40 + 4 + 2 * lineHeight + 4,
+      ),
+      itemCount: banks.length,
+      itemBuilder: (context, i) {
+        final b = banks[i];
+        return _BankTile(
+          key: Key('banco-${b.logoKey}'),
+          name: b.name,
+          logoKey: b.logoKey,
+          selected: b.id == selectedId,
+          onTap: () => onSelect(b),
+        );
+      },
     );
   }
 }

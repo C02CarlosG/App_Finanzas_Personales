@@ -6,6 +6,7 @@ import '../../../core/data/data_providers.dart';
 import '../../../core/db/queries.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/sync/sync_controller.dart';
+import '../../../core/ui/fit_trailing.dart';
 import 'bank_avatar.dart';
 
 /// Bancos (spec 5.5): cuentas bancarias y de efectivo con su saldo actual.
@@ -21,6 +22,7 @@ class AccountsPage extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Bancos')),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: null, // varias pantallas con FAB conviven (pestañas + rutas); sin etiqueta no chocan en la transición
         key: const Key('agregar-cuenta'),
         onPressed: () => context.push(AppRoutes.accountNew),
         icon: const Icon(Icons.add),
@@ -40,10 +42,12 @@ class AccountsPage extends ConsumerWidget {
                   color: theme.colorScheme.primaryContainer,
                   child: ListTile(
                     title: const Text('Saldo total'),
-                    trailing: Text(
-                      total?.format() ?? '',
-                      key: const Key('bancos-saldo-total'),
-                      style: theme.textTheme.titleLarge,
+                    trailing: FitTrailing(
+                      child: Text(
+                        total?.format() ?? '',
+                        key: const Key('bancos-saldo-total'),
+                        style: theme.textTheme.titleLarge,
+                      ),
                     ),
                   ),
                 ),
@@ -78,19 +82,21 @@ class _AccountTile extends StatelessWidget {
         leading: account.isCash ? const CashAvatar() : BankAvatar(name: account.bankName ?? account.name, logoKey: account.logoKey),
         title: Text(account.name),
         subtitle: Text(kindLabel(account)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (account.pending)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Icon(Icons.cloud_upload_outlined, size: 16, color: theme.colorScheme.outline, semanticLabel: 'Pendiente de enviar'),
+        trailing: FitTrailing(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (account.pending)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(Icons.cloud_upload_outlined, size: 16, color: theme.colorScheme.outline, semanticLabel: 'Pendiente de enviar'),
+                ),
+              Text(
+                account.balance.format(),
+                style: theme.textTheme.titleMedium?.copyWith(color: account.balance.isNegative ? theme.colorScheme.error : null),
               ),
-            Text(
-              account.balance.format(),
-              style: theme.textTheme.titleMedium?.copyWith(color: account.balance.isNegative ? theme.colorScheme.error : null),
-            ),
-          ],
+            ],
+          ),
         ),
         onTap: () => context.push(AppRoutes.account(account.id)),
       ),
@@ -104,25 +110,33 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Center(
+    // Con texto grande o pantalla baja el contenido puede no caber: se centra si cabe y se desplaza si no.
+    return LayoutBuilder(
       key: const Key('sin-cuentas'),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.account_balance, size: 64, color: theme.colorScheme.primary),
-            const SizedBox(height: 16),
-            Text('Aún no tienes cuentas', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            const Text('Agrega una cuenta bancaria o efectivo para empezar a registrar tus movimientos.', textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () => context.push(AppRoutes.accountNew),
-              icon: const Icon(Icons.add),
-              label: const Text('Agregar cuenta'),
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.account_balance, size: 64, color: theme.colorScheme.primary),
+                  const SizedBox(height: 16),
+                  Text('Aún no tienes cuentas', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  const Text('Agrega una cuenta bancaria o efectivo para empezar a registrar tus movimientos.', textAlign: TextAlign.center),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () => context.push(AppRoutes.accountNew),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Agregar cuenta'),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );

@@ -11,6 +11,18 @@ Color categoryColorOf(String? hex, Color fallback) {
   return Color(int.parse('FF${hex.substring(1)}', radix: 16));
 }
 
+/// Color para mostrar una categoría: el suyo, o uno estable de la paleta según su nombre.
+/// Las categorías que siembra el servidor no traen color; con gris claro el icono blanco no se vería.
+Color categoryDisplayColor(String? hex, String? name) {
+  final valid = hex != null && RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(hex);
+  if (valid) return categoryColorOf(hex, Colors.grey);
+  var h = 0;
+  for (final unit in (name ?? '').codeUnits) {
+    h = (h * 31 + unit) & 0x7fffffff;
+  }
+  return categoryColorOf(categoryColors[h % categoryColors.length], Colors.grey);
+}
+
 /// Crea (si [category] es `null`) o edita una categoría. Las del sistema solo cambian de color.
 Future<void> showCategoryEditor(BuildContext context, {required String kind, CategoryRow? category}) {
   return showModalBottomSheet<void>(
@@ -104,13 +116,25 @@ class _CategoryEditorSheetState extends ConsumerState<CategoryEditorSheet> {
             const SizedBox(height: 8),
             Wrap(spacing: 10, runSpacing: 10, children: [
               for (final hex in categoryColors)
-                GestureDetector(
-                  key: Key('color-$hex'),
-                  onTap: () => setState(() => _color = hex),
-                  child: CircleAvatar(
-                    radius: 16,
-                    backgroundColor: categoryColorOf(hex, theme.colorScheme.primary),
-                    child: _color == hex ? const Icon(Icons.check, size: 18, color: Colors.white) : null,
+                Semantics(
+                  button: true,
+                  selected: _color == hex,
+                  label: 'Color ${categoryColors.indexOf(hex) + 1} de ${categoryColors.length}',
+                  child: InkResponse(
+                    key: Key('color-$hex'),
+                    onTap: () => setState(() => _color = hex),
+                    radius: 24,
+                    child: SizedBox(
+                      width: 44, // objetivo táctil mínimo recomendado
+                      height: 44,
+                      child: Center(
+                        child: CircleAvatar(
+                          radius: 17,
+                          backgroundColor: categoryColorOf(hex, theme.colorScheme.primary),
+                          child: _color == hex ? const Icon(Icons.check, size: 20, color: Colors.white) : null,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
             ]),

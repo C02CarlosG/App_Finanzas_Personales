@@ -72,7 +72,8 @@ class TransactionView {
   /// Importe con signo para mostrar: ingresos positivos, gastos negativos.
   Money get signedAmount => isIncome ? amount : -amount;
 
-  /// Falta la cuenta o la categoría (p. ej. se borró en otro dispositivo): "huérfana".
+  /// Falta la cuenta o la categoría, o quedó eliminada (p. ej. se borró en otro dispositivo): "huérfana".
+  /// Los JOIN ignoran padres con tombstone, así que `accountName`/`categoryName` son null en ese caso.
   bool get isOrphan => accountName == null || categoryName == null;
 }
 
@@ -148,9 +149,9 @@ class OutboxProblem {
 extension AppQueries on AppDatabase {
   static const _txJoins = '''
     FROM transactions t
-    LEFT JOIN accounts a ON a.id = t.account_id
+    LEFT JOIN accounts a ON a.id = t.account_id AND a.deleted_at IS NULL
     LEFT JOIN banks b ON b.id = a.bank_id
-    LEFT JOIN categories c ON c.id = t.category_id''';
+    LEFT JOIN categories c ON c.id = t.category_id AND c.deleted_at IS NULL''';
 
   Set<ResultSetImplementation> get _allTables => {accounts, banks, categories, transactions, syncOutbox};
 

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/data/data_providers.dart';
 import '../../../core/db/queries.dart';
 import '../../../core/format/dates.dart';
+import '../../../core/ui/fit_trailing.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/sync/sync_controller.dart';
 import 'transaction_tile.dart';
@@ -31,6 +32,7 @@ class MovementsPage extends StatelessWidget {
             bottom: const TabBar(tabs: [Tab(text: 'Ingresos'), Tab(text: 'Gastos')]),
           ),
           floatingActionButton: FloatingActionButton.extended(
+            heroTag: null, // varias pantallas con FAB conviven (pestañas + rutas); sin etiqueta no chocan en la transición
             key: const Key('agregar-movimiento'),
             onPressed: () => context.push(AppRoutes.transactionNew(tabs.index == 0 ? 'income' : 'expense')),
             icon: const Icon(Icons.add),
@@ -104,9 +106,14 @@ class _MovementListState extends ConsumerState<_MovementList> with AutomaticKeep
 
     return RefreshIndicator(
       onRefresh: () => ref.read(syncControllerProvider.notifier).syncNow(),
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 96),
-        children: [
+      // Lista perezosa: con "Todo el historial" puede haber miles de movimientos y solo se construyen los visibles.
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.only(top: 8),
+            sliver: SliverToBoxAdapter(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           // Mes
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -147,7 +154,7 @@ class _MovementListState extends ConsumerState<_MovementList> with AutomaticKeep
               child: ListTile(
                 title: Text(_hasFilters ? 'Total (con filtros)' : (_allTime ? 'Total' : 'Total del mes')),
                 subtitle: Text(isIncome ? 'Ingresos' : 'Gastos'),
-                trailing: Text(total?.format() ?? '', key: const Key('total-movimientos'), style: theme.textTheme.titleLarge),
+                trailing: FitTrailing(child: Text(total?.format() ?? '', key: const Key('total-movimientos'), style: theme.textTheme.titleLarge)),
               ),
             ),
           ),
@@ -200,22 +207,38 @@ class _MovementListState extends ConsumerState<_MovementList> with AutomaticKeep
             ]),
           ),
           const SizedBox(height: 8),
-          list.when(
-            loading: () => const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
-            error: (e, _) => Padding(padding: const EdgeInsets.all(16), child: Text('No se pudieron cargar los movimientos: $e')),
+              ]),
+            ),
+          ),
+          ...list.when(
+            loading: () => [const SliverToBoxAdapter(child: Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())))],
+            error: (e, _) => [SliverToBoxAdapter(child: Padding(padding: const EdgeInsets.all(16), child: Text('No se pudieron cargar los movimientos: $e')))],
             data: (items) => items.isEmpty
-                ? _Empty(
-                    filtered: _hasFilters,
-                    isIncome: isIncome,
-                    onClear: () => setState(() {
-                      _categoryId = null;
-                      _accountId = null;
-                      _search.clear();
-                    }),
-                  )
-                : Column(children: [
-                    for (final t in items) TransactionTile(tx: t, showYear: _allTime, onTap: () => context.push(AppRoutes.transaction(t.id))),
-                  ]),
+                ? [
+                    SliverToBoxAdapter(
+                      child: _Empty(
+                        filtered: _hasFilters,
+                        isIncome: isIncome,
+                        onClear: () => setState(() {
+                          _categoryId = null;
+                          _accountId = null;
+                          _search.clear();
+                        }),
+                      ),
+                    ),
+                  ]
+                : [
+                    SliverPadding(
+                      padding: const EdgeInsets.only(bottom: 96),
+                      sliver: SliverList.builder(
+                        itemCount: items.length,
+                        itemBuilder: (context, i) {
+                          final t = items[i];
+                          return TransactionTile(key: ValueKey(t.id), tx: t, showYear: _allTime, onTap: () => context.push(AppRoutes.transaction(t.id)));
+                        },
+                      ),
+                    ),
+                  ],
           ),
         ],
       ),

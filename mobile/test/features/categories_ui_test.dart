@@ -1,4 +1,5 @@
 import 'package:finanzas_personales/core/money/money.dart';
+import 'package:finanzas_personales/features/categories/presentation/category_editor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -116,5 +117,16 @@ void main() {
     await settleDb(tester);
     expect(find.text('Vivienda'), findsNothing);
     await finishApp(tester);
+  });
+
+  test('categoryDisplayColor: usa el color propio y, si falta o es inválido, uno estable de la paleta (nunca gris)', () {
+    expect(categoryDisplayColor('#C62828', 'Comida'), const Color(0xFFC62828));
+    final fallback = categoryDisplayColor(null, 'Alimentación');
+    expect(fallback, isNot(Colors.grey));
+    expect(categoryDisplayColor(null, 'Alimentación'), fallback); // estable
+    expect(categoryDisplayColor('no-es-color', 'Alimentación'), fallback);
+    expect(categoryDisplayColor('#12345', 'Alimentación'), fallback);
+    expect(categoryDisplayColor(null, null), isNot(Colors.grey));
+    expect({for (final n in ['Alimentación', 'Vivienda', 'Salud', 'Transporte', 'Ocio']) categoryDisplayColor(null, n)}.length, greaterThan(1));
   });
 }
