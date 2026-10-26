@@ -77,8 +77,9 @@ final cardPaymentsProvider = StreamProvider.family<List<CardPaymentView>, String
 );
 
 /// `loan` / `card` si el movimiento respalda un abono o un pago de tarjeta (no se edita desde Movimientos).
-final linkedKindProvider = FutureProvider.family<String?, String>(
-  (ref, transactionId) async => ref.watch(databaseProvider)?.linkedKindOfTransaction(transactionId),
+/// Reactivo y por pantalla: no queda obsoleto al llegar o deshacerse el abono.
+final linkedKindProvider = StreamProvider.autoDispose.family<String?, String>(
+  (ref, transactionId) => ref.watch(databaseProvider)?.watchLinkedKind(transactionId) ?? const Stream.empty(),
 );
 
 final pendingCountProvider = StreamProvider<int>(

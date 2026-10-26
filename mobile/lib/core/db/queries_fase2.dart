@@ -33,8 +33,11 @@ class LoanView {
   final bool pending; // tiene cambios sin enviar
 
   bool get iOwe => direction == 'i_owe';
-  bool get isPaid => status == 'paid';
   Money get total => principal + increases;
+
+  /// Pagado = los abonos cubren el total. Se deriva (no se lee `status`) para que dos dispositivos que
+  /// editaron el monto o agregaron un aumento a la vez no dejen un préstamo "pagado" con saldo pendiente.
+  bool get isPaid => payments.cents >= total.cents;
 
   /// Lo que falta por pagar o cobrar. Dos dispositivos que abonen lo mismo antes de sincronizar pueden
   /// dejar los abonos por encima del total: se muestra 0, no un saldo negativo.
@@ -231,14 +234,15 @@ extension Fase2Queries on AppDatabase {
     return LoansSummary(owedToMe: Money(owed), iOwe: Money(owe));
   });
 
-  Selectable<QueryRow> get _subscriptionRows => customSelect(
+  Selectable<QueryRow> _subscriptionRows({String? id}) => customSelect(
     '''
         SELECT s.id, s.name, s.amount_cents, s.renewal_date, s.period, s.active, s.account_id, a.name AS account_name,
                EXISTS(SELECT 1 FROM sync_outbox o WHERE o.entity = 'subscriptions' AND o.record_id = s.id) AS pending
         FROM subscriptions s
         LEFT JOIN accounts a ON a.id = s.account_id AND a.deleted_at IS NULL
-        WHERE s.deleted_at IS NULL
+        WHERE s.deleted_at IS NULL ${id == null ? '' : 'AND s.id = ?'}
         ORDER BY s.active DESC, lower(s.name)''',
+    variables: [if (id != null) Variable.withString(id)],
     readsFrom: {subscriptions, accounts, syncOutbox},
   );
 
@@ -257,19 +261,20 @@ extension Fase2Queries on AppDatabase {
       ),
   ];
 
-  Stream<List<SubscriptionView>> watchSubscriptions() => _subscriptionRows.watch().map(_toSubscriptionViews);
+  Stream<List<SubscriptionView>> watchSubscriptions() => _subscriptionRows().watch().map(_toSubscriptionViews);
 
   Future<SubscriptionView?> findSubscription(String id) async =>
-      _toSubscriptionViews(await _subscriptionRows.get()).where((s) => s.id == id).firstOrNull;
+      _toSubscriptionViews(await _subscriptionRows(id: id).get()).firstOrNull;
 
-  Selectable<QueryRow> get _creditCardRows => customSelect(
+  Selectable<QueryRow> _creditCardRows({String? id}) => customSelect(
     '''
         SELECT c.id, c.name, c.pending_balance_cents, c.due_date, c.bank_id, b.name AS bank_name, b.logo_key,
                EXISTS(SELECT 1 FROM sync_outbox o WHERE o.entity = 'credit_cards' AND o.record_id = c.id) AS pending
         FROM credit_cards c
         LEFT JOIN banks b ON b.id = c.bank_id
-        WHERE c.deleted_at IS NULL
+        WHERE c.deleted_at IS NULL ${id == null ? '' : 'AND c.id = ?'}
         ORDER BY (c.due_date IS NULL), c.due_date, lower(c.name)''',
+    variables: [if (id != null) Variable.withString(id)],
     readsFrom: {creditCards, banks, syncOutbox},
   );
 
@@ -287,10 +292,10 @@ extension Fase2Queries on AppDatabase {
       ),
   ];
 
-  Stream<List<CreditCardView>> watchCreditCards() => _creditCardRows.watch().map(_toCreditCardViews);
+  Stream<List<CreditCardView>> watchCreditCards() => _creditCardRows().watch().map(_toCreditCardViews);
 
   Future<CreditCardView?> findCreditCard(String id) async =>
-      _toCreditCardViews(await _creditCardRows.get()).where((c) => c.id == id).firstOrNull;
+      _toCreditCardViews(await _creditCardRows(id: id).get()).firstOrNull;
 
   Stream<List<CardPaymentView>> watchCardPayments(String cardId) =>
       customSelect(
@@ -317,6 +322,17 @@ extension Fase2Queries on AppDatabase {
             ),
         ],
       );
+
+  /// Igual que [linkedKindOfTransaction], pero reactivo: cambia si el abono llega o se deshace.
+  Stream<String?> watchLinkedKind(String transactionId) => customSelect(
+        '''
+        SELECT CASE
+          WHEN EXISTS(SELECT 1 FROM loan_movements m WHERE m.transaction_id = ?1 AND m.deleted_at IS NULL) THEN 'loan'
+          WHEN EXISTS(SELECT 1 FROM credit_card_payments p WHERE p.transaction_id = ?1 AND p.deleted_at IS NULL) THEN 'card'
+        END AS kind''',
+        variables: [Variable.withString(transactionId)],
+        readsFrom: {loanMovements, creditCardPayments},
+      ).watchSingle().map((r) => r.readNullable<String>('kind'));
 
   /// `loan` / `card` si la transacción respalda un abono o un pago de tarjeta vivo (no se edita sola).
   Future<String?> linkedKindOfTransaction(String transactionId) async {

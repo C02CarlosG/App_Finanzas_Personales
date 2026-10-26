@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/data/system_categories.dart';
 import '../../../core/data/validation_exception.dart';
+import '../../../core/data/validators.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/db/local_store.dart';
 import '../../../core/format/dates.dart';
@@ -21,8 +22,6 @@ class CreditCardsRepository {
   final DateTime Function() _now;
   AppDatabase get _db => _store.db;
 
-  static const _maxCents = 99999999999999;
-
   Future<String> create({required String name, String? bankId, Money pendingBalance = Money.zero, String? dueDate}) async {
     final id = _newId();
     await _store.saveCreditCard(
@@ -30,7 +29,7 @@ class CreditCardsRepository {
       bankId: await _validBank(bankId),
       name: _validName(name),
       pendingBalance: _validBalance(pendingBalance),
-      dueDate: _validOptionalDate(dueDate),
+      dueDate: validOptionalIsoDate(dueDate),
     );
     return id;
   }
@@ -43,7 +42,7 @@ class CreditCardsRepository {
       bankId: bankId == row.bankId ? bankId : await _validBank(bankId),
       name: _validName(name),
       pendingBalance: _validBalance(pendingBalance),
-      dueDate: _validOptionalDate(dueDate),
+      dueDate: validOptionalIsoDate(dueDate),
     );
   }
 
@@ -57,7 +56,7 @@ class CreditCardsRepository {
       throw ValidationException('El pago excede el saldo pendiente (${Money(card.pendingBalanceCents).format()}). '
           'Si el saldo cambió, actualízalo primero en la tarjeta.');
     }
-    final date = _validDate(paidOn ?? isoDate(_now()));
+    final date = validIsoDate(paidOn ?? isoDate(_now()));
     final account = await (_db.select(_db.accounts)..where((a) => a.id.equals(accountId) & a.deletedAt.isNull())).getSingleOrNull();
     if (account == null) throw const ValidationException('Elige la cuenta desde la que pagas');
     final categoryId = await SystemCategory.idOf(_db, SystemCategory.cardPayment);
@@ -123,25 +122,13 @@ class CreditCardsRepository {
         dueDate: card.dueDate,
       );
 
-  String _validName(String raw) {
-    final name = raw.trim();
-    if (name.isEmpty) throw const ValidationException('Escribe el nombre de la tarjeta');
-    if (name.length > 100) throw const ValidationException('El nombre es demasiado largo (máx. 100)');
-    return name;
-  }
+  String _validName(String raw) => requiredName(raw, emptyMessage: 'Escribe el nombre de la tarjeta');
 
   Money _validBalance(Money m) {
     if (m.cents < 0) throw const ValidationException('El saldo pendiente no puede ser negativo');
-    if (m.cents > _maxCents) throw const ValidationException('El monto es demasiado grande');
+    if (m.cents > maxCents) throw const ValidationException('El monto es demasiado grande');
     return m;
   }
-
-  String _validDate(String iso) {
-    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(iso)) throw const ValidationException('Fecha inválida');
-    return iso;
-  }
-
-  String? _validOptionalDate(String? iso) => (iso == null || iso.isEmpty) ? null : _validDate(iso);
 
   Future<String?> _validBank(String? bankId) async {
     if (bankId == null) return null;

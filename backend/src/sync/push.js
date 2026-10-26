@@ -54,7 +54,7 @@ async function applyUpsert(client, userId, change, ent, existing, foreignId, ser
       `SELECT $1::timestamptz > client_updated_at AS newer FROM ${ent.table} WHERE id = $2`, [clientTs, change.id])).rows[0].newer;
     // Empate o más viejo: gana el servidor. El cliente adopta record (también cubre reintentos idempotentes).
     if (!newer) return result(change, 'stale', { record: await fetchRecord(client, ent, change.id) });
-    const rejected = ent.checkUpdate(existing, data);
+    const rejected = await ent.checkUpdate(client, userId, existing, data);
     if (rejected) return result(change, 'rejected', { ...rejected, record: await fetchRecord(client, ent, change.id) });
   }
 

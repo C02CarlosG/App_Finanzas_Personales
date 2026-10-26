@@ -395,14 +395,22 @@ void main() {
         id: id, name: id, amount: Money.parse('10'), renewalDate: date, period: period, active: active, pending: false);
     CreditCardView card(String id, String? due, String pending) =>
         CreditCardView(id: id, name: id, pendingBalance: Money.parse(pending), dueDate: due, pending: false);
-    LoanView loan(String id, String? due, {String direction = 'owed_to_me', String status = 'active'}) => LoanView(
-        id: id, personName: id, direction: direction, principal: Money.parse('100'), increases: Money.zero, payments: Money.zero, status: status, dueDate: due, pending: false);
+    LoanView loan(String id, String? due, {String direction = 'owed_to_me', bool paid = false}) => LoanView(
+        id: id,
+        personName: id,
+        direction: direction,
+        principal: Money.parse('100'),
+        increases: Money.zero,
+        payments: paid ? Money.parse('100') : Money.zero,
+        status: paid ? 'paid' : 'active',
+        dueDate: due,
+        pending: false);
 
     test('incluye vencidos y lo que cae dentro de 30 días; deja fuera lo lejano; respeta el límite', () {
       final items = buildUpcoming(
         subscriptions: [sub('hoy', '2026-10-20'), sub('lejos', '2026-12-31', period: 'yearly')],
         cards: [card('vencida', '2026-10-15', '10'), card('en-30', '2026-11-19', '10'), card('en-31', '2026-11-20', '10')],
-        loans: [loan('debo', '2026-10-25', direction: 'i_owe'), loan('pagado', '2026-10-21', status: 'paid'), loan('sin-plazo', null)],
+        loans: [loan('debo', '2026-10-25', direction: 'i_owe'), loan('pagado', '2026-10-21', paid: true), loan('sin-plazo', null)],
         today: today,
       );
       expect([for (final i in items) i.id], ['vencida', 'hoy', 'debo', 'en-30']);

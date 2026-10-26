@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/data/validation_exception.dart';
+import '../../../core/data/validators.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/db/local_store.dart';
 import '../../../core/db/queries_fase2.dart';
@@ -91,7 +92,7 @@ class TransactionsRepository {
     if (type != 'income' && type != 'expense') throw const ValidationException('Tipo de movimiento inválido');
     if (amount.cents <= 0) throw const ValidationException('El monto debe ser mayor a 0');
     if (amount.cents > _maxCents) throw const ValidationException('El monto es demasiado grande');
-    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(occurredOn)) throw const ValidationException('Fecha inválida');
+    validIsoDate(occurredOn);
 
     final account = await (_db.select(_db.accounts)..where((a) => a.id.equals(accountId) & a.deletedAt.isNull())).getSingleOrNull();
     if (account == null) throw const ValidationException('Elige una cuenta');

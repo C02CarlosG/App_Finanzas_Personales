@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/data/system_categories.dart';
 import '../../../core/data/validation_exception.dart';
+import '../../../core/data/validators.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/db/local_store.dart';
 import '../../../core/db/queries_fase2.dart';
@@ -21,8 +22,6 @@ class LoansRepository {
   final DateTime Function() _now;
   AppDatabase get _db => _store.db;
 
-  static const _maxCents = 99999999999999;
-
   Future<String> create({
     required String personName,
     required String direction,
@@ -36,8 +35,8 @@ class LoansRepository {
       id: id,
       personName: _validName(personName),
       direction: direction,
-      principal: _validAmount(principal),
-      dueDate: _validOptionalDate(dueDate),
+      principal: positiveMoney(principal),
+      dueDate: validOptionalIsoDate(dueDate),
       notes: _validNotes(notes),
     );
     return id;
@@ -46,7 +45,7 @@ class LoansRepository {
   /// El sentido (le debo / me debe) no cambia: invertiría los abonos ya registrados.
   Future<void> update(String id, {required String personName, required Money principal, String? dueDate, String? notes}) async {
     final loan = await _findRow(id);
-    final amount = _validAmount(principal);
+    final amount = positiveMoney(principal);
     final view = await _view(id);
     final floor = view.payments.cents - view.increases.cents;
     if (amount.cents < floor) {
@@ -57,8 +56,9 @@ class LoansRepository {
       personName: _validName(personName),
       direction: loan.direction,
       principal: amount,
-      dueDate: _validOptionalDate(dueDate),
-      status: loan.status,
+      dueDate: validOptionalIsoDate(dueDate),
+      // Cambiar el monto original puede dejar el préstamo saldado o volver a abrirlo.
+      status: view.payments.cents >= amount.cents + view.increases.cents ? 'paid' : 'active',
       notes: _validNotes(notes),
     );
   }
@@ -69,12 +69,12 @@ class LoansRepository {
   Future<void> addPayment(String loanId, {required Money amount, required String accountId, String? occurredOn}) async {
     final loan = await _findRow(loanId);
     final view = await _view(loanId);
-    final paid = _validAmount(amount);
-    if (loan.status == 'paid') throw const ValidationException('Este préstamo ya está pagado');
+    final paid = positiveMoney(amount);
+    if (view.isPaid) throw const ValidationException('Este préstamo ya está pagado');
     if (paid.cents > view.remaining.cents) {
       throw ValidationException('El abono excede lo pendiente (${view.remaining.format()})');
     }
-    final date = _validDate(occurredOn ?? isoDate(_now()));
+    final date = validIsoDate(occurredOn ?? isoDate(_now()));
     final account = await (_db.select(_db.accounts)..where((a) => a.id.equals(accountId) & a.deletedAt.isNull())).getSingleOrNull();
     if (account == null) throw const ValidationException('Elige la cuenta del abono');
 
@@ -99,8 +99,8 @@ class LoansRepository {
   /// Aumenta el monto (la persona presta más). Es un hecho ya ocurrido: no mueve saldos. Reactiva un préstamo pagado.
   Future<void> addIncrease(String loanId, {required Money amount, String? occurredOn}) async {
     final loan = await _findRow(loanId);
-    final more = _validAmount(amount);
-    final date = _validDate(occurredOn ?? isoDate(_now()));
+    final more = positiveMoney(amount);
+    final date = validIsoDate(occurredOn ?? isoDate(_now()));
     await _db.transaction(() async {
       await _store.saveLoanMovement(id: _newId(), loanId: loanId, kind: 'increase', amount: more, occurredOn: date);
       if (loan.status == 'paid') await _setStatus(loan, 'active');
@@ -112,12 +112,11 @@ class LoansRepository {
   Future<void> markPaid(String loanId, {String? accountId, String? occurredOn}) async {
     final loan = await _findRow(loanId);
     final view = await _view(loanId);
-    if (loan.status == 'paid') return;
     if (view.remaining.cents > 0) {
       if (accountId == null) throw const ValidationException('Elige la cuenta del último abono');
       await addPayment(loanId, amount: view.remaining, accountId: accountId, occurredOn: occurredOn);
-    } else {
-      await _setStatus(loan, 'paid');
+    } else if (loan.status != 'paid') {
+      await _setStatus(loan, 'paid'); // ya saldado por los abonos: solo falta reflejarlo en el estado guardado
     }
   }
 
@@ -174,25 +173,7 @@ class LoansRepository {
     if (d != 'i_owe' && d != 'owed_to_me') throw const ValidationException('Indica si le debes o te debe');
   }
 
-  String _validName(String raw) {
-    final name = raw.trim();
-    if (name.isEmpty) throw const ValidationException('Escribe el nombre de la persona');
-    if (name.length > 100) throw const ValidationException('El nombre es demasiado largo (máx. 100)');
-    return name;
-  }
-
-  Money _validAmount(Money m) {
-    if (m.cents <= 0) throw const ValidationException('El monto debe ser mayor a 0');
-    if (m.cents > _maxCents) throw const ValidationException('El monto es demasiado grande');
-    return m;
-  }
-
-  String _validDate(String iso) {
-    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(iso)) throw const ValidationException('Fecha inválida');
-    return iso;
-  }
-
-  String? _validOptionalDate(String? iso) => (iso == null || iso.isEmpty) ? null : _validDate(iso);
+  String _validName(String raw) => requiredName(raw, emptyMessage: 'Escribe el nombre de la persona');
 
   String? _validNotes(String? raw) {
     final notes = raw?.trim();

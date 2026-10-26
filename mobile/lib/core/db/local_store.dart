@@ -300,10 +300,10 @@ class LocalStore {
   Future<void> _removeOutbox(String entity, String id) =>
       (db.delete(db.syncOutbox)..where((t) => t.entity.equals(entity) & t.recordId.equals(id))).go();
 
-  Map<String, TableInfo> get _tables => {
-        for (final t in db.allTables)
-          if (syncEntities.contains(t.actualTableName)) t.actualTableName: t,
-      };
+  late final Map<String, TableInfo> _tables = {
+    for (final t in db.allTables)
+      if (syncEntities.contains(t.actualTableName)) t.actualTableName: t,
+  };
 
   TableInfo _table(String entity) => _tables[entity] ?? (throw ArgumentError('Entidad desconocida: $entity'));
 

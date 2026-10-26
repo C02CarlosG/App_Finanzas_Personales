@@ -242,7 +242,7 @@ test('no se borra una tarjeta con pagos ni la transacción de un pago; sí con e
   await push(u, [
     change('accounts', accId, acct(), at('10:00:00.000')),
     change('credit_cards', cardId, card(), at('10:00:00.000')),
-    change('transactions', txId, txn(accId, cat, 'expense'), at('10:00:01.000')),
+    change('transactions', txId, txn(accId, cat, 'expense', { amount: '500' }), at('10:00:01.000')),
     change('credit_card_payments', payId, cardPay(cardId, { account_id: accId, transaction_id: txId }), at('10:00:02.000')),
   ]).expect(200);
   const blocked = await push(u, [remove('credit_cards', cardId), remove('transactions', txId), remove('accounts', accId)]).expect(200);
@@ -321,4 +321,65 @@ test('dos dispositivos convergen en préstamos aunque lleguen en distinto orden'
   const r = await push(u, [change('loans', loanId, loan({ notes: 'A' }), at('11:00:00.000'))]).expect(200);
   assert.equal(r.body.results[0].status, 'stale');
   assert.equal(r.body.results[0].record.notes, 'B');
+});
+
+test('la transacción de un abono o pago no cambia de tipo, monto ni cuenta (sync ni REST); lo demás sí', async () => {
+  const { u, income, cardPay: cat } = await setup();
+  const accId = uid(); const otherAcc = uid(); const loanId = uid(); const txId = uid(); const movId = uid();
+  const cardId = uid(); const cardTx = uid(); const payId = uid();
+  await push(u, [
+    change('accounts', accId, acct(), at('10:00:00.000')),
+    change('accounts', otherAcc, acct({ name: 'Otra' }), at('10:00:00.000')),
+    change('loans', loanId, loan(), at('10:00:00.000')),
+    change('credit_cards', cardId, card(), at('10:00:00.000')),
+    change('transactions', txId, txn(accId, income, 'income'), at('10:00:01.000')),
+    change('transactions', cardTx, txn(accId, cat, 'expense', { amount: '500' }), at('10:00:01.000')),
+    change('loan_movements', movId, move(loanId, { transaction_id: txId }), at('10:00:02.000')),
+    change('credit_card_payments', payId, cardPay(cardId, { account_id: accId, transaction_id: cardTx }), at('10:00:02.000')),
+  ]).expect(200);
+
+  const edits = await push(u, [
+    change('transactions', txId, txn(accId, income, 'income', { amount: '999' }), soon(1000)),
+    change('transactions', cardTx, txn(otherAcc, cat, 'expense', { amount: '500' }), soon(1000)),
+  ]).expect(200);
+  assert.deepEqual(edits.body.results.map((r) => [r.status, r.code]), [['rejected', 'in_use'], ['rejected', 'in_use']]);
+  assert.equal(edits.body.results[0].record.amount, '100.00'); // devuelve el registro vigente
+
+  const ok = await push(u, [change('transactions', txId, txn(accId, income, 'income', { description: 'nota', counterparty: 'Luis' }), soon(2000))]).expect(200);
+  assert.equal(ok.body.results[0].status, 'applied');
+
+  await u.patch(`/transactions/${txId}`).send({ amount: '1' }).expect(409);
+  await u.patch(`/transactions/${txId}`).send({ account_id: otherAcc }).expect(409);
+  await u.patch(`/transactions/${txId}`).send({ description: 'otra nota' }).expect(200);
+
+  // Sin el abono que la respalda, la transacción vuelve a ser editable.
+  await push(u, [remove('loan_movements', movId, soon(3000))]).expect(200);
+  await u.patch(`/transactions/${txId}`).send({ amount: '1' }).expect(200);
+});
+
+test('un aumento no lleva transacción; una transacción respalda un solo movimiento; los montos y cuentas deben coincidir', async () => {
+  const { u, income, cardPay: cat } = await setup();
+  const accId = uid(); const otherAcc = uid(); const loanId = uid(); const cardId = uid(); const tx1 = uid(); const tx2 = uid(); const tx3 = uid();
+  await push(u, [
+    change('accounts', accId, acct(), at('10:00:00.000')),
+    change('accounts', otherAcc, acct({ name: 'Otra' }), at('10:00:00.000')),
+    change('loans', loanId, loan(), at('10:00:00.000')),
+    change('credit_cards', cardId, card(), at('10:00:00.000')),
+    change('transactions', tx1, txn(accId, income, 'income', { amount: '100' }), at('10:00:01.000')),
+    change('transactions', tx2, txn(accId, cat, 'expense', { amount: '500' }), at('10:00:01.000')),
+    change('transactions', tx3, txn(accId, income, 'income', { amount: '30' }), at('10:00:01.000')),
+  ]).expect(200);
+  const res = await push(u, [
+    change('loan_movements', uid(), move(loanId, { kind: 'increase', transaction_id: tx1 }), at('11:00:00.000')), // aumento con transacción
+    change('loan_movements', uid(), move(loanId, { amount: '99', transaction_id: tx1 }), at('11:00:00.000')), // monto distinto
+    change('loan_movements', uid(), move(loanId, { amount: '100', transaction_id: tx1 }), at('11:00:00.000')), // ok
+    change('loan_movements', uid(), move(loanId, { amount: '100', transaction_id: tx1 }), at('11:00:01.000')), // la misma transacción otra vez
+    change('credit_card_payments', uid(), cardPay(cardId, { account_id: accId, transaction_id: tx1 }), at('11:00:01.000')), // ya respalda un abono
+    change('credit_card_payments', uid(), cardPay(cardId, { amount: '400', account_id: accId, transaction_id: tx2 }), at('11:00:01.000')), // monto distinto
+    change('credit_card_payments', uid(), cardPay(cardId, { account_id: otherAcc, transaction_id: tx2 }), at('11:00:01.000')), // cuenta distinta
+    change('credit_card_payments', uid(), cardPay(cardId, { account_id: accId, transaction_id: tx2 }), at('11:00:01.000')), // ok
+  ]).expect(200);
+  assert.deepEqual(res.body.results.map((r) => r.code ?? r.status), [
+    'validation_error', 'amount_mismatch', 'applied', 'validation_error', 'type_mismatch', 'amount_mismatch', 'validation_error', 'applied']);
+  void tx3;
 });

@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/data/validation_exception.dart';
+import '../../../core/data/validators.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/db/local_store.dart';
 import '../../../core/money/money.dart';
@@ -15,7 +16,6 @@ class SubscriptionsRepository {
   final String Function() _newId;
   AppDatabase get _db => _store.db;
 
-  static const _maxCents = 99999999999999;
   static const periods = ['weekly', 'monthly', 'yearly'];
 
   Future<String> create({
@@ -29,8 +29,8 @@ class SubscriptionsRepository {
     await _store.saveSubscription(
       id: id,
       name: _validName(name),
-      amount: _validAmount(amount),
-      renewalDate: _validDate(renewalDate),
+      amount: positiveMoney(amount),
+      renewalDate: validIsoDate(renewalDate),
       period: _validPeriod(period),
       accountId: await _validAccount(accountId),
     );
@@ -50,8 +50,8 @@ class SubscriptionsRepository {
     await _store.saveSubscription(
       id: id,
       name: _validName(name),
-      amount: _validAmount(amount),
-      renewalDate: _validDate(renewalDate),
+      amount: positiveMoney(amount),
+      renewalDate: validIsoDate(renewalDate),
       period: _validPeriod(period),
       // Conservar la cuenta que ya tenía no exige que siga viva (el servidor tampoco lo pide si no cambia).
       accountId: accountId == row.accountId ? accountId : await _validAccount(accountId),
@@ -84,23 +84,7 @@ class SubscriptionsRepository {
     return row;
   }
 
-  String _validName(String raw) {
-    final name = raw.trim();
-    if (name.isEmpty) throw const ValidationException('Escribe el nombre del servicio');
-    if (name.length > 100) throw const ValidationException('El nombre es demasiado largo (máx. 100)');
-    return name;
-  }
-
-  Money _validAmount(Money m) {
-    if (m.cents <= 0) throw const ValidationException('El monto debe ser mayor a 0');
-    if (m.cents > _maxCents) throw const ValidationException('El monto es demasiado grande');
-    return m;
-  }
-
-  String _validDate(String iso) {
-    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(iso)) throw const ValidationException('Fecha inválida');
-    return iso;
-  }
+  String _validName(String raw) => requiredName(raw, emptyMessage: 'Escribe el nombre del servicio');
 
   String _validPeriod(String p) {
     if (!periods.contains(p)) throw const ValidationException('Periodicidad inválida');

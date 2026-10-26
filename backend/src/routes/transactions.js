@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db/pool');
 const validate = require('../middleware/validate');
 const { AppError, notFound } = require('../utils/errors');
+const { transactionIsBacked, changesLockedFields } = require('../services/links');
 const { z, money, uuid, isoDate, idParams } = require('../utils/schemas');
 
 const router = express.Router();
@@ -108,6 +109,9 @@ router.patch('/:id', validate({ params: idParams, body: updateBody }), async (re
   const current = await findOne(req.userId, id);
   const merged = { ...current, ...req.valid.body };
   await assertRefs(req.userId, merged);
+  if (changesLockedFields(current, merged) && (await transactionIsBacked(pool, req.userId, id))) {
+    throw new AppError(409, 'La transacción pertenece a un abono o a un pago de tarjeta; no se puede cambiar su tipo, monto ni cuenta', 'in_use');
+  }
   await pool.query(
     `UPDATE transactions SET type = $3, amount = $4, account_id = $5, category_id = $6,
             occurred_on = $7, description = $8, counterparty = $9
@@ -118,12 +122,9 @@ router.patch('/:id', validate({ params: idParams, body: updateBody }), async (re
 });
 
 router.delete('/:id', validate({ params: idParams }), async (req, res) => {
-  const backs = await pool.query(
-    `SELECT 1 FROM loan_movements WHERE transaction_id = $1 AND user_id = $2 AND deleted_at IS NULL
-     UNION ALL
-     SELECT 1 FROM credit_card_payments WHERE transaction_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`,
-    [req.valid.params.id, req.userId]);
-  if (backs.rowCount) throw new AppError(409, 'La transacción pertenece a un abono o a un pago de tarjeta', 'in_use');
+  if (await transactionIsBacked(pool, req.userId, req.valid.params.id)) {
+    throw new AppError(409, 'La transacción pertenece a un abono o a un pago de tarjeta', 'in_use');
+  }
   const { rowCount } = await pool.query(
     'UPDATE transactions SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
     [req.valid.params.id, req.userId]);

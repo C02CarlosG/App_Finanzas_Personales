@@ -1,6 +1,7 @@
 // Registro de entidades sincronizables. Para sumar una tabla (Fase 2/3) basta con
 // agregarla aquí: esquema de datos, columnas, orden de dependencia y reglas de borrado.
 const { z, money, nonNegativeMoney, signedMoney, uuid: uuidAny, isoDate } = require('../utils/schemas');
+const { transactionIsBacked, accountHasLinks, changesLockedFields } = require('../services/links');
 
 // Los UUID se canonicalizan a minúsculas (Postgres los devuelve así; comparar sin esto da falsos inmutables).
 const uuid = uuidAny.transform((v) => v.toLowerCase());
@@ -99,7 +100,7 @@ const ENTITIES = {
     schema: categoryData,
     select: `t.id, t.kind, t.name, t.icon, t.color, t.is_system, ${syncCols}`,
     async validateRefs() { return null; },
-    checkUpdate(existing, data) {
+    checkUpdate(_client, _userId, existing, data) {
       if (existing.is_system && data.name !== existing.name) {
         return { code: 'system_category', message: 'Las categorías del sistema no se pueden renombrar' };
       }
@@ -132,11 +133,7 @@ const ENTITIES = {
       const used = await client.query(
         'SELECT 1 FROM transactions WHERE account_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1', [existing.id, userId]);
       if (used.rowCount) return { code: 'in_use', message: 'La cuenta tiene transacciones' };
-      const linked = await client.query(
-        `SELECT 1 FROM subscriptions WHERE account_id = $1 AND user_id = $2 AND deleted_at IS NULL
-         UNION ALL
-         SELECT 1 FROM credit_card_payments WHERE account_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`, [existing.id, userId]);
-      return linked.rowCount ? { code: 'in_use', message: 'La cuenta tiene suscripciones o pagos de tarjeta' } : null;
+      return (await accountHasLinks(client, userId, existing.id)) ? { code: 'in_use', message: 'La cuenta tiene suscripciones o pagos de tarjeta' } : null;
     },
   },
 
@@ -155,14 +152,19 @@ const ENTITIES = {
       if (cat.rows[0].kind !== data.type) return { code: 'category_kind_mismatch', message: 'La categoría no corresponde al tipo de transacción' };
       return null;
     },
-    checkUpdate() { return null; },
-    // Un ingreso/gasto que respalda un abono o un pago de tarjeta se borra desde su origen (el movimiento).
+    // Un ingreso/gasto que respalda un abono o un pago de tarjeta no cambia de tipo, monto ni cuenta: los
+    // saldos del préstamo/tarjeta y los de las cuentas dejarían de cuadrar. Se deshace desde su origen.
+    async checkUpdate(client, userId, existing, data) {
+      if (!changesLockedFields(existing, data)) return null;
+      return (await transactionIsBacked(client, userId, existing.id))
+        ? { code: 'in_use', message: 'La transacción pertenece a un abono o a un pago de tarjeta; no se puede cambiar su tipo, monto ni cuenta' }
+        : null;
+    },
+    // ...y se borra desde su origen (el movimiento).
     async blockDelete(client, userId, existing) {
-      const backs = await client.query(
-        `SELECT 1 FROM loan_movements WHERE transaction_id = $1 AND user_id = $2 AND deleted_at IS NULL
-         UNION ALL
-         SELECT 1 FROM credit_card_payments WHERE transaction_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`, [existing.id, userId]);
-      return backs.rowCount ? { code: 'in_use', message: 'La transacción pertenece a un abono o a un pago de tarjeta' } : null;
+      return (await transactionIsBacked(client, userId, existing.id))
+        ? { code: 'in_use', message: 'La transacción pertenece a un abono o a un pago de tarjeta' }
+        : null;
     },
   },
 
@@ -234,10 +236,16 @@ const ENTITIES = {
       const loan = await ownLive(client, 'loans', userId, data.loan_id, 'direction');
       if (!loan) return invalidRef('Préstamo no encontrado o eliminado');
       if (data.transaction_id) {
-        const tx = await ownLive(client, 'transactions', userId, data.transaction_id, 'type');
+        // Solo los abonos mueven dinero; un aumento es el registro de un hecho ya ocurrido.
+        if (data.kind !== 'payment') return { code: 'validation_error', message: 'Solo un abono puede llevar transaction_id' };
+        const tx = await ownLive(client, 'transactions', userId, data.transaction_id, 'type, amount');
         if (!tx) return invalidRef('Transacción no encontrada o eliminada');
-        if (data.kind === 'payment' && tx.type !== (loan.direction === 'owed_to_me' ? 'income' : 'expense')) {
+        if (tx.type !== (loan.direction === 'owed_to_me' ? 'income' : 'expense')) {
           return { code: 'type_mismatch', message: 'El abono no corresponde al tipo de transacción (cobro = ingreso, pago = gasto)' };
+        }
+        if (Number(tx.amount) !== Number(data.amount)) return { code: 'amount_mismatch', message: 'El monto del abono no coincide con el de su transacción' };
+        if (await transactionIsBacked(client, userId, data.transaction_id)) {
+          return { code: 'validation_error', message: 'La transacción ya respalda otro movimiento' };
         }
       }
       return null;
@@ -258,9 +266,14 @@ const ENTITIES = {
       if (!(await ownLive(client, 'credit_cards', userId, data.credit_card_id))) return invalidRef('Tarjeta no encontrada o eliminada');
       if (data.account_id && !(await ownLive(client, 'accounts', userId, data.account_id))) return invalidRef('Cuenta no encontrada o eliminada');
       if (data.transaction_id) {
-        const tx = await ownLive(client, 'transactions', userId, data.transaction_id, 'type');
+        const tx = await ownLive(client, 'transactions', userId, data.transaction_id, 'type, amount, account_id');
         if (!tx) return invalidRef('Transacción no encontrada o eliminada');
         if (tx.type !== 'expense') return { code: 'type_mismatch', message: 'Un pago de tarjeta se registra como gasto' };
+        if (Number(tx.amount) !== Number(data.amount)) return { code: 'amount_mismatch', message: 'El monto del pago no coincide con el de su transacción' };
+        if (data.account_id && tx.account_id !== data.account_id) return { code: 'validation_error', message: 'La cuenta del pago no coincide con la de su transacción' };
+        if (await transactionIsBacked(client, userId, data.transaction_id)) {
+          return { code: 'validation_error', message: 'La transacción ya respalda otro movimiento' };
+        }
       }
       return null;
     },

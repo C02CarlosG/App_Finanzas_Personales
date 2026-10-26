@@ -179,7 +179,10 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     final needsPerson = _type == 'income' && (category?.isSystem ?? false);
     final isIncome = _type == 'income';
     // Un abono de préstamo o un pago de tarjeta se modifica desde su origen: aquí solo se consulta.
-    final linked = _editing ? ref.watch(linkedKindProvider(widget.transactionId!)).value : null;
+    final linkedState = _editing ? ref.watch(linkedKindProvider(widget.transactionId!)) : null;
+    final linked = linkedState?.value;
+    // Mientras se comprueba, no se ofrece guardar ni eliminar (evita un destello de botones en un movimiento ligado).
+    final checking = linkedState?.isLoading ?? false;
 
     if (_loading) {
       return Scaffold(appBar: AppBar(title: const Text('Movimiento')), body: const Center(child: CircularProgressIndicator()));
@@ -189,7 +192,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
       appBar: AppBar(
         title: Text(_editing ? (isIncome ? 'Editar ingreso' : 'Editar gasto') : (isIncome ? 'Nuevo ingreso' : 'Nuevo gasto')),
         actions: [
-          if (_editing && linked == null)
+          if (_editing && linked == null && !checking)
             IconButton(key: const Key('eliminar-movimiento'), tooltip: 'Eliminar', icon: const Icon(Icons.delete_outline), onPressed: _delete),
         ],
       ),
@@ -270,7 +273,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                 Text(_error!, key: const Key('error-movimiento'), style: TextStyle(color: theme.colorScheme.error)),
               ],
               const SizedBox(height: 16),
-              if (linked == null)
+              if (linked == null && !checking)
                 FilledButton(
                   key: const Key('guardar-movimiento'),
                   onPressed: _busy ? null : () => _save(needsPerson: needsPerson),

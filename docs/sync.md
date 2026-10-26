@@ -20,7 +20,7 @@ Código: `backend/src/routes/sync.js`, `backend/src/sync/*`, migración `002_syn
 | `banks` | solo pull | Catálogo global sembrado. El cliente no lo modifica. |
 | `categories` | push + pull | `is_system` solo lectura (p. ej. "Préstamo cobrado"). |
 | `accounts` | push + pull | `type`/`bank_id` inmutables tras crear. |
-| `transactions` | push + pull | Las que respaldan un abono o un pago de tarjeta no se borran sin su movimiento (`in_use`). |
+| `transactions` | push + pull | Las que respaldan un abono o un pago de tarjeta no se borran (`in_use`) ni cambian de tipo, monto o cuenta (`in_use`, también por REST `PATCH`); descripción, fecha y categoría sí se editan. |
 | `loans` | push + pull | Préstamos y deudas. `direction` inmutable. `principal` es el monto **original**; el pendiente se **deriva** (ver abajo). |
 | `credit_cards` | push + pull | Saldo pendiente (`pending_balance` ≥ 0) y vencimiento. |
 | `subscriptions` | push + pull | Servicios recurrentes; `account_id` opcional (si se usa, la cuenta no se borra). |
@@ -33,7 +33,7 @@ Código: `backend/src/routes/sync.js`, `backend/src/sync/*`, migración `002_syn
 
 - **Préstamo = original + movimientos.** `total = principal + Σ aumentos`; `pendiente = total − Σ abonos`. Nada de esto se guarda: dos dispositivos que registren abonos distintos convergen sumando sus movimientos, en lugar de pisarse un saldo guardado (que con LWW perdería uno). `status` (`active`/`paid`) sí se guarda.
 - **Un abono que mueve dinero lo liga a una transacción** (`loan_movements.transaction_id`, `credit_card_payments.transaction_id`): cobro a quien te debe = **ingreso** en la cuenta elegida (categoría de sistema "Préstamo cobrado" + persona); abono a lo que debes = **gasto** ("Pago de préstamo"); pago de tarjeta = **gasto** ("Pago de tarjeta"). Los *aumentos* no mueven saldos (son el registro de un hecho ya ocurrido). Las dos categorías de gasto son de sistema (no se renombran ni se borran); la migración 003 las crea para los usuarios existentes y reutiliza una del mismo nombre si el usuario ya la tenía.
-- **Cadena de dependencia:** `loans`/`credit_cards`/`accounts` → `transactions` → `loan_movements`/`credit_card_payments`. El servidor valida que el préstamo/tarjeta/cuenta/transacción sean propios y estén vivos, y que el tipo de la transacción corresponda (`income` para cobros, `expense` para pagos y abonos a deudas) → `type_mismatch`.
+- **Cadena de dependencia:** `loans`/`credit_cards`/`accounts` → `transactions` → `loan_movements`/`credit_card_payments`. El servidor valida que el préstamo/tarjeta/cuenta/transacción sean propios y estén vivos; que el tipo de la transacción corresponda (`income` para cobros, `expense` para pagos y abonos a deudas) → `type_mismatch`; que el monto (y la cuenta, en pagos de tarjeta) coincida → `amount_mismatch` / `validation_error`; que un *aumento* no lleve transacción; y que una transacción respalde **un solo** movimiento o pago. Un cliente anterior a la Fase 2 que intente editar el monto de esa transacción recibe `in_use` y adopta el registro vigente.
 - **Tarjetas: `pending_balance` sí se guarda** (el usuario lo captura al ver su estado de cuenta) y el cliente lo reduce al registrar un pago, y lo restituye si se elimina. Con LWW por registro, dos dispositivos que paguen a la vez la misma tarjeta pueden perder uno de los descuentos (límite aceptado, ver §7).
 
 ## 3. Tiempos: tres relojes distintos
@@ -115,6 +115,7 @@ Errores a nivel de lote: `503 batch_too_slow` (el lote agotó su presupuesto de 
 | `invalid_reference` | invalid | Cuenta/categoría inexistente, ajena o **borrada**. | **No sacar de la outbox todavía.** Si el padre sigue pendiente en la outbox (o fue rechazado en este mismo lote, o va en un lote posterior), reintentar en el siguiente ciclo. Solo si el padre ya llegó como tombstone en un pull: la transacción queda **huérfana**; la app debe pedir al usuario reasignar a otra cuenta/categoría o descartarla. |
 | `category_kind_mismatch` | invalid | Categoría de ingreso en un gasto o viceversa. | Bug del cliente. |
 | `type_mismatch` | invalid | El tipo de la transacción ligada no corresponde al movimiento (un cobro debe ser ingreso; un pago o abono a deuda, gasto). | Bug del cliente. |
+| `amount_mismatch` | invalid | El monto del abono/pago no coincide con el de su transacción ligada. | Bug del cliente. |
 | `immutable_field` | invalid | Cambió `type`/`bank_id` de cuenta, `kind` de categoría, `direction` de préstamo o las referencias de un movimiento/pago. | Bug del cliente. |
 | `invalid_id` | invalid | El `id` ya pertenece a otro usuario. | Regenerar UUID. |
 

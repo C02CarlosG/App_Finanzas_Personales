@@ -1,4 +1,5 @@
 import 'package:finanzas_personales/core/data/validation_exception.dart';
+import 'package:finanzas_personales/core/data/validators.dart';
 import 'package:finanzas_personales/core/db/queries.dart';
 import 'package:finanzas_personales/core/db/queries_fase2.dart';
 import 'package:finanzas_personales/core/format/dates.dart';
@@ -181,6 +182,32 @@ void main() {
       expect(v.direction, 'owed_to_me'); // el sentido no cambia
     });
 
+    test('"pagado" se deriva de los abonos: cambiar el monto original reabre o salda el préstamo', () async {
+      final id = await loans.create(personName: 'Ana', direction: 'owed_to_me', principal: Money.parse('100'));
+      await loans.addPayment(id, amount: Money.parse('100'), accountId: 'bbva');
+      expect((await loan(id)).isPaid, isTrue);
+
+      await loans.update(id, personName: 'Ana', principal: Money.parse('150'));
+      var v = await loan(id);
+      expect([v.isPaid, v.remaining.cents], [false, 5000]);
+      expect((await h.db.select(h.db.loans).getSingle()).status, 'active'); // el estado guardado también se corrige
+
+      await loans.update(id, personName: 'Ana', principal: Money.parse('100'));
+      v = await loan(id);
+      expect([v.isPaid, v.remaining.cents], [true, 0]);
+      expect((await h.db.select(h.db.loans).getSingle()).status, 'paid');
+    });
+
+    test('un estado "pagado" guardado con saldo pendiente (edición concurrente en otro dispositivo) se ve como activo', () async {
+      final id = await loans.create(personName: 'Ana', direction: 'owed_to_me', principal: Money.parse('100'));
+      await h.db.customStatement("UPDATE loans SET status = 'paid' WHERE id = '$id'"); // lo que dejaría un LWW desafortunado
+      h.db.markTablesUpdated({h.db.loans});
+      final v = await loan(id);
+      expect([v.isPaid, v.remaining.cents], [false, 10000]);
+      await loans.addPayment(id, amount: Money.parse('10'), accountId: 'bbva'); // y se puede abonar
+      expect((await loan(id)).remaining.cents, 9000);
+    });
+
     test('el listado ordena activos por plazo y deja los pagados al final; el resumen separa lo que te deben de lo que debes', () async {
       final a = await loans.create(personName: 'Zeta', direction: 'owed_to_me', principal: Money.parse('100'), dueDate: '2026-12-01');
       final b = await loans.create(personName: 'Beta', direction: 'i_owe', principal: Money.parse('50'));
@@ -290,6 +317,24 @@ void main() {
     });
   });
 
+  group('validaciones compartidas', () {
+    test('las fechas imposibles se rechazan aunque tengan forma de fecha', () {
+      for (final bad in ['2026-02-30', '2026-13-01', '2026-00-10', '2026-04-31', '26-01-01', '', '2026-1-1']) {
+        expect(() => validIsoDate(bad), throwsA(isA<ValidationException>()), reason: bad);
+      }
+      expect(validIsoDate('2024-02-29'), '2024-02-29');
+      expect(() => validIsoDate('2025-02-29'), throwsA(isA<ValidationException>()));
+      expect(validOptionalIsoDate(null), isNull);
+      expect(validOptionalIsoDate(''), isNull);
+    });
+
+    test('el movimiento de un préstamo con fecha imposible no se guarda', () async {
+      final id = await loans.create(personName: 'Ana', direction: 'owed_to_me', principal: Money.parse('100'));
+      await expectLater(loans.addIncrease(id, amount: Money.parse('5'), occurredOn: '2026-02-30'), throwsA(isA<ValidationException>()));
+      await expectLater(loans.create(personName: 'X', direction: 'i_owe', principal: Money.parse('1'), dueDate: '2026-02-30'), throwsA(isA<ValidationException>()));
+    });
+  });
+
   group('próxima renovación', () {
     String next(String base, String period, DateTime from) => isoDate(nextRenewal(base, period, from));
 
@@ -321,6 +366,20 @@ void main() {
   });
 
   group('consultas', () {
+    test('la marca de "movimiento ligado" cambia al deshacer el abono', () async {
+      final id = await loans.create(personName: 'Ana', direction: 'owed_to_me', principal: Money.parse('100'));
+      await loans.addPayment(id, amount: Money.parse('10'), accountId: 'bbva');
+      final tx = (await allTx()).single;
+      final seen = <String?>[];
+      final sub = h.db.watchLinkedKind(tx.id).listen(seen.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await loans.deleteMovement((await h.db.watchLoanMovements(id).first).single.id);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await sub.cancel();
+      expect(seen.first, 'loan');
+      expect(seen.last, isNull);
+    });
+
     test('un préstamo eliminado en otro dispositivo (tombstone) desaparece de listados y sus movimientos no cuentan', () async {
       final id = await loans.create(personName: 'Ana', direction: 'owed_to_me', principal: Money.parse('100'));
       await loans.addPayment(id, amount: Money.parse('10'), accountId: 'bbva');
