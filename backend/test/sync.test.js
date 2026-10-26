@@ -242,7 +242,7 @@ test('pull inicial entrega catálogo de bancos, categorías sembradas y datos pr
   const again = await pull(u, `?cursor=${first.body.next_cursor}`).expect(200);
   assert.deepEqual(Object.values(again.body.changes).map((r) => r.length), Array(Object.keys(again.body.changes).length).fill(0));
   assert.deepEqual(Object.keys(again.body.changes),
-    ['banks', 'categories', 'accounts', 'loans', 'credit_cards', 'transactions', 'subscriptions', 'loan_movements', 'credit_card_payments']);
+    ['banks', 'categories', 'accounts', 'loans', 'credit_cards', 'transactions', 'subscriptions', 'loan_movements', 'credit_card_payments', 'budgets']);
 
   // una edición REST y un borrado por sync aparecen en el siguiente pull
   await u.patch(`/transactions/${txId}`).send({ description: 'editada' }).expect(200);

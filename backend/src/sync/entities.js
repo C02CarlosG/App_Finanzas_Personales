@@ -1,7 +1,7 @@
 // Registro de entidades sincronizables. Para sumar una tabla (Fase 2/3) basta con
 // agregarla aquí: esquema de datos, columnas, orden de dependencia y reglas de borrado.
 const { z, money, nonNegativeMoney, signedMoney, uuid: uuidAny, isoDate } = require('../utils/schemas');
-const { transactionIsBacked, accountHasLinks, changesLockedFields } = require('../services/links');
+const { transactionIsBacked, accountHasLinks, categoryHasBudget, changesLockedFields } = require('../services/links');
 
 // Los UUID se canonicalizan a minúsculas (Postgres los devuelve así; comparar sin esto da falsos inmutables).
 const uuid = uuidAny.transform((v) => v.toLowerCase());
@@ -83,6 +83,12 @@ const creditCardPaymentData = z.object({
   paid_on: isoDate,
 }).strict();
 
+const budgetData = z.object({
+  category_id: uuid,
+  monthly_limit: money,
+  alert_percent: z.number().int().min(1).max(100), // % del límite a partir del cual avisar
+}).strict();
+
 const invalidRef = (message) => ({ code: 'invalid_reference', message });
 
 // Padre propio y vivo; FOR SHARE para que un borrado concurrente espere a que este lote termine.
@@ -110,7 +116,8 @@ const ENTITIES = {
       if (existing.is_system) return { code: 'system_category', message: 'Las categorías del sistema no se pueden eliminar' };
       const used = await client.query(
         'SELECT 1 FROM transactions WHERE category_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1', [existing.id, userId]);
-      return used.rowCount ? { code: 'in_use', message: 'La categoría tiene transacciones' } : null;
+      if (used.rowCount) return { code: 'in_use', message: 'La categoría tiene transacciones' };
+      return (await categoryHasBudget(client, userId, existing.id)) ? { code: 'in_use', message: 'La categoría tiene un presupuesto' } : null;
     },
   },
 
@@ -280,6 +287,25 @@ const ENTITIES = {
     checkUpdate() { return null; },
     async blockDelete() { return null; },
   },
+
+  // ---------- Fase 3 ----------
+  budgets: {
+    table: 'budgets',
+    order: 9,
+    dataCols: ['category_id', 'monthly_limit', 'alert_percent'],
+    immutable: ['category_id'], // otro límite para otra categoría es otro presupuesto
+    schema: budgetData,
+    select: `t.id, t.category_id, t.monthly_limit, t.alert_percent, ${syncCols}`,
+    async validateRefs(client, userId, data, existing) {
+      if (existing) return null;
+      const cat = await ownLive(client, 'categories', userId, data.category_id, 'kind');
+      if (!cat) return invalidRef('Categoría no encontrada o eliminada');
+      if (cat.kind !== 'expense') return { code: 'category_kind_mismatch', message: 'Un presupuesto es de una categoría de gastos' };
+      return null;
+    },
+    checkUpdate() { return null; },
+    async blockDelete() { return null; },
+  },
 };
 
 // lockOwnRows bloquea las tablas en este orden: si dos tablas empataran, dos lotes que las toquen en
@@ -301,6 +327,8 @@ const READONLY_CATALOGS = {
 };
 
 // Orden de entrega en el pull: catálogos y padres primero.
-const PULL_ORDER = ['banks', 'categories', 'accounts', 'loans', 'credit_cards', 'transactions', 'subscriptions', 'loan_movements', 'credit_card_payments'];
+const PULL_ORDER = [
+  'banks', 'categories', 'accounts', 'loans', 'credit_cards', 'transactions', 'subscriptions', 'loan_movements', 'credit_card_payments', 'budgets',
+];
 
 module.exports = { ENTITIES, READONLY_CATALOGS, PULL_ORDER };

@@ -4,7 +4,7 @@ const { ENTITIES } = require('./entities');
 
 const MAX_FUTURE_MS = 5 * 60 * 1000;
 // Resultados que pueden resolverse tras aplicar el resto del lote (p. ej. un borrado libera un nombre).
-const RETRYABLE_CODES = new Set(['duplicate_name', 'invalid_reference']);
+const RETRYABLE_CODES = new Set(['duplicate_name', 'duplicate_budget', 'invalid_reference']);
 
 const result = (change, status, extra = {}) => ({ table: change.table, id: change.id, status, ...extra });
 
@@ -93,6 +93,20 @@ async function mapDbError(client, userId, change, ent, existed, err) {
           conflicting_id: dup.rows[0].id,
           // Presente solo al renombrar una categoría ya sincronizada: el cliente la conserva y adopta record.
           record: existed ? await fetchRecord(client, ent, change.id) : null,
+        });
+      }
+    }
+    if (change.table === 'budgets' && change.data?.category_id) {
+      // Otro dispositivo ya creó el presupuesto de esa categoría: el cliente descarta el suyo y adopta ese.
+      const dup = await client.query(
+        'SELECT id FROM budgets WHERE user_id = $1 AND category_id = $2 AND deleted_at IS NULL AND id <> $3',
+        [userId, String(change.data.category_id).toLowerCase(), change.id]);
+      if (dup.rowCount) {
+        return result(change, 'rejected', {
+          code: 'duplicate_budget',
+          message: 'Ya existe un presupuesto para esa categoría',
+          conflicting_id: dup.rows[0].id,
+          record: null,
         });
       }
     }

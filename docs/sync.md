@@ -26,8 +26,9 @@ Código: `backend/src/routes/sync.js`, `backend/src/sync/*`, migración `002_syn
 | `subscriptions` | push + pull | Servicios recurrentes; `account_id` opcional (si se usa, la cuenta no se borra). |
 | `loan_movements` | push + pull | Abonos y aumentos. Append-only en la práctica: `loan_id`, `kind` y `transaction_id` son inmutables. |
 | `credit_card_payments` | push + pull | Pagos de tarjeta. `credit_card_id`, `account_id` y `transaction_id` inmutables. |
+| `budgets` | push + pull | Límite mensual por categoría de **gastos** (`category_id` inmutable, un presupuesto vivo por categoría). El avance (gastado / límite) no se guarda: se deriva de las transacciones del mes. Una categoría con presupuesto no se borra (`in_use`). |
 
-`budgets` (Fase 3) se agrega registrándola en `backend/src/sync/entities.js` (esquema Zod, columnas, orden de dependencia, regla de borrado) y con su `client_updated_at` en una migración. El campo `order` de cada entidad debe ser **único**: define el orden de bloqueo de filas y el de aplicación (el servidor se niega a arrancar si hay empates).
+Una tabla nueva se agrega registrándola en `backend/src/sync/entities.js` (esquema Zod, columnas, orden de dependencia, regla de borrado) y con su `client_updated_at` en una migración. El campo `order` de cada entidad debe ser **único**: define el orden de bloqueo de filas y el de aplicación (el servidor se niega a arrancar si hay empates).
 
 ### Fase 2: modelo de préstamos y tarjetas
 
@@ -57,7 +58,7 @@ Sube los cambios locales pendientes (outbox). Requiere `Authorization: Bearer <j
 {
   "changes": [
     {
-      "table": "transactions",              // categories | accounts | transactions | loans | credit_cards | subscriptions | loan_movements | credit_card_payments
+      "table": "transactions",              // categories | accounts | transactions | loans | credit_cards | subscriptions | loan_movements | credit_card_payments | budgets
       "id": "7d0f5a0e-3f43-4a52-9a1c-0c1b8f6d2e11",   // UUID generado en el dispositivo
       "client_updated_at": "2026-10-20T15:04:05.123Z",
       "deleted": false,                     // true = borrar (no lleva data)
@@ -114,6 +115,7 @@ Errores a nivel de lote: `503 batch_too_slow` (el lote agotó su presupuesto de 
 | `validation_error` | invalid | Esquema/regla (`message` lista campos). | Bug del cliente o dato corrupto; registrar. |
 | `invalid_reference` | invalid | Cuenta/categoría inexistente, ajena o **borrada**. | **No sacar de la outbox todavía.** Si el padre sigue pendiente en la outbox (o fue rechazado en este mismo lote, o va en un lote posterior), reintentar en el siguiente ciclo. Solo si el padre ya llegó como tombstone en un pull: la transacción queda **huérfana**; la app debe pedir al usuario reasignar a otra cuenta/categoría o descartarla. |
 | `category_kind_mismatch` | invalid | Categoría de ingreso en un gasto o viceversa. | Bug del cliente. |
+| `duplicate_budget` | rejected | Ya existe un presupuesto vivo para esa categoría (otro dispositivo lo creó antes). Trae `conflicting_id`; sin `record`. Entra al segundo pase del lote (el mismo lote puede borrar el viejo). | **Descartar** el presupuesto local (nunca llegó al servidor) y sacarlo de la outbox; el vigente llega en el pull. El límite que el usuario escribió en este dispositivo se pierde (límite aceptado). |
 | `type_mismatch` | invalid | El tipo de la transacción ligada no corresponde al movimiento (un cobro debe ser ingreso; un pago o abono a deuda, gasto). | Bug del cliente. |
 | `amount_mismatch` | invalid | El monto del abono/pago no coincide con el de su transacción ligada. | Bug del cliente. |
 | `immutable_field` | invalid | Cambió `type`/`bank_id` de cuenta, `kind` de categoría, `direction` de préstamo o las referencias de un movimiento/pago. | Bug del cliente. |
@@ -124,7 +126,7 @@ Errores a nivel de lote: `503 batch_too_slow` (el lote agotó su presupuesto de 
 El lote se aplica en **una transacción** con un *savepoint* por cambio (un cambio inválido no arrastra a los demás):
 
 0. Antes de aplicar, se **bloquean las filas propias del lote** en orden fijo (tabla, id): dos lotes que se solapan en distinto orden no pueden bloquearse entre sí. Las filas ajenas no se bloquean. Un deadlock residual se reintenta solo (hasta 3 veces).
-1. Altas y ediciones, **padres primero**: `categories` → `accounts` → `loans` → `credit_cards` → `transactions` → `subscriptions` → `loan_movements` → `credit_card_payments`.
+1. Altas y ediciones, **padres primero**: `categories` → `accounts` → `loans` → `credit_cards` → `transactions` → `subscriptions` → `loan_movements` → `credit_card_payments` → `budgets`.
 2. Borrados, **hijos primero**: el orden inverso (p. ej. `loan_movements` → `transactions` → `loans`).
 3. **Segundo pase** solo para lo que falló con `duplicate_name` o `invalid_reference`: tras los borrados, el nombre pudo liberarse o el padre pudo crearse. Los intentos fallidos no dejaron escrituras, así que repetirlos es seguro.
 
@@ -167,7 +169,7 @@ GET /sync/pull?cursor=<next_cursor anterior>&limit=500
 }
 ```
 
-- Las tablas llegan en orden de dependencia (`banks`, `categories`, `accounts`, `loans`, `credit_cards`, `transactions`, `subscriptions`, `loan_movements`, `credit_card_payments`); filas dentro de cada tabla ordenadas por `(updated_at, id)`.
+- Las tablas llegan en orden de dependencia (`banks`, `categories`, `accounts`, `loans`, `credit_cards`, `transactions`, `subscriptions`, `loan_movements`, `credit_card_payments`, `budgets`); filas dentro de cada tabla ordenadas por `(updated_at, id)`.
 - Un registro borrado llega con `deleted_at` no nulo (tombstone) y el cliente lo marca borrado.
 - El cursor es **por tabla** (cada una avanza con su propia clave `(updated_at µs, id)`), dentro de un cursor opaco único. Una página se lee en una sola foto consistente (`REPEATABLE READ`).
 - Un cursor mal formado o con fechas imposibles (30 de febrero, mes 13…) → `400 invalid_cursor`.
