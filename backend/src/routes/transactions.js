@@ -118,6 +118,12 @@ router.patch('/:id', validate({ params: idParams, body: updateBody }), async (re
 });
 
 router.delete('/:id', validate({ params: idParams }), async (req, res) => {
+  const backs = await pool.query(
+    `SELECT 1 FROM loan_movements WHERE transaction_id = $1 AND user_id = $2 AND deleted_at IS NULL
+     UNION ALL
+     SELECT 1 FROM credit_card_payments WHERE transaction_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`,
+    [req.valid.params.id, req.userId]);
+  if (backs.rowCount) throw new AppError(409, 'La transacción pertenece a un abono o a un pago de tarjeta', 'in_use');
   const { rowCount } = await pool.query(
     'UPDATE transactions SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
     [req.valid.params.id, req.userId]);

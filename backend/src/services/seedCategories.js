@@ -9,12 +9,17 @@ const EXPENSE = [
   'Entretenimiento', 'Educación', 'Salud',
 ];
 const LOAN_COLLECTED = 'Préstamo cobrado';
+// Gastos que genera la app al abonar a lo que debes o pagar una tarjeta (Fase 2).
+const LOAN_PAYMENT = 'Pago de préstamo';
+const CARD_PAYMENT = 'Pago de tarjeta';
 
 async function seedCategories(client, userId) {
   const rows = [
     ...INCOME.map((name) => ['income', name, false]),
     ['income', LOAN_COLLECTED, true],
     ...EXPENSE.map((name) => ['expense', name, false]),
+    ['expense', LOAN_PAYMENT, true],
+    ['expense', CARD_PAYMENT, true],
   ];
   for (const [kind, name, isSystem] of rows) {
     await client.query(
@@ -24,4 +29,4 @@ async function seedCategories(client, userId) {
   }
 }
 
-module.exports = { seedCategories, LOAN_COLLECTED };
+module.exports = { seedCategories, LOAN_COLLECTED, LOAN_PAYMENT, CARD_PAYMENT };

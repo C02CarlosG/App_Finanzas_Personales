@@ -233,14 +233,16 @@ test('pull inicial entrega catálogo de bancos, categorías sembradas y datos pr
 
   const first = await pull(u).expect(200);
   assert.ok(first.body.changes.banks.length >= 16);
-  assert.ok(first.body.changes.categories.length >= 15);
+  assert.ok(first.body.changes.categories.length >= 17); // 15 + 2 de sistema de la Fase 2
   assert.equal(first.body.changes.accounts.length, 1);
   assert.equal(first.body.changes.transactions[0].id, txId);
   assert.equal(first.body.has_more, false);
   assert.match(first.body.changes.accounts[0].updated_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/);
 
   const again = await pull(u, `?cursor=${first.body.next_cursor}`).expect(200);
-  assert.deepEqual(Object.values(again.body.changes).map((r) => r.length), [0, 0, 0, 0]);
+  assert.deepEqual(Object.values(again.body.changes).map((r) => r.length), Array(Object.keys(again.body.changes).length).fill(0));
+  assert.deepEqual(Object.keys(again.body.changes),
+    ['banks', 'categories', 'accounts', 'loans', 'credit_cards', 'transactions', 'subscriptions', 'loan_movements', 'credit_card_payments']);
 
   // una edición REST y un borrado por sync aparecen en el siguiente pull
   await u.patch(`/transactions/${txId}`).send({ description: 'editada' }).expect(200);
@@ -260,7 +262,7 @@ test('pull con paginación recorre todo exactamente una vez', async () => {
   await push(u, [change('accounts', accId, acct(), at('09:00:00.000'))]).expect(200);
   await push(u, txIds.map((id) => change('transactions', id, txn(accId, expenseCat), at('10:00:00.000')))).expect(200);
 
-  const seen = { banks: [], categories: [], accounts: [], transactions: [] };
+  const seen = Object.fromEntries(Object.keys((await pull(u).expect(200)).body.changes).map((t) => [t, []]));
   let cursor; let pages = 0; let more = true;
   while (more) {
     const res = await pull(u, `?limit=3${cursor ? `&cursor=${cursor}` : ''}`).expect(200);
@@ -270,7 +272,7 @@ test('pull con paginación recorre todo exactamente una vez', async () => {
   }
   for (const [t, ids] of Object.entries(seen)) assert.equal(new Set(ids).size, ids.length, `${t} sin duplicados`);
   assert.deepEqual(seen.transactions.sort(), [...txIds].sort());
-  assert.ok(seen.banks.length >= 16 && seen.categories.length >= 15);
+  assert.ok(seen.banks.length >= 16 && seen.categories.length >= 17);
 });
 
 test('el margen de seguridad oculta cambios demasiado recientes hasta que maduran', async () => {

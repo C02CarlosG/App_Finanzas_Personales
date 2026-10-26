@@ -83,6 +83,11 @@ router.delete('/:id', validate({ params: idParams }), async (req, res) => {
   const used = await pool.query(
     'SELECT 1 FROM transactions WHERE account_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1', [id, req.userId]);
   if (used.rowCount) throw new AppError(409, 'La cuenta tiene transacciones; elimínalas o muévelas primero', 'in_use');
+  const linked = await pool.query(
+    `SELECT 1 FROM subscriptions WHERE account_id = $1 AND user_id = $2 AND deleted_at IS NULL
+     UNION ALL
+     SELECT 1 FROM credit_card_payments WHERE account_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`, [id, req.userId]);
+  if (linked.rowCount) throw new AppError(409, 'La cuenta tiene suscripciones o pagos de tarjeta', 'in_use');
   const { rowCount } = await pool.query(
     'UPDATE accounts SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL', [id, req.userId]);
   if (!rowCount) throw notFound('Cuenta');

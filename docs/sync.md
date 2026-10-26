@@ -20,9 +20,21 @@ Código: `backend/src/routes/sync.js`, `backend/src/sync/*`, migración `002_syn
 | `banks` | solo pull | Catálogo global sembrado. El cliente no lo modifica. |
 | `categories` | push + pull | `is_system` solo lectura (p. ej. "Préstamo cobrado"). |
 | `accounts` | push + pull | `type`/`bank_id` inmutables tras crear. |
-| `transactions` | push + pull | |
+| `transactions` | push + pull | Las que respaldan un abono o un pago de tarjeta no se borran sin su movimiento (`in_use`). |
+| `loans` | push + pull | Préstamos y deudas. `direction` inmutable. `principal` es el monto **original**; el pendiente se **deriva** (ver abajo). |
+| `credit_cards` | push + pull | Saldo pendiente (`pending_balance` ≥ 0) y vencimiento. |
+| `subscriptions` | push + pull | Servicios recurrentes; `account_id` opcional (si se usa, la cuenta no se borra). |
+| `loan_movements` | push + pull | Abonos y aumentos. Append-only en la práctica: `loan_id`, `kind` y `transaction_id` son inmutables. |
+| `credit_card_payments` | push + pull | Pagos de tarjeta. `credit_card_id`, `account_id` y `transaction_id` inmutables. |
 
-Fase 2 y 3 (`loans`, `loan_movements`, `subscriptions`, `credit_cards`, `credit_card_payments`, `budgets`) se agregan registrándolas en `backend/src/sync/entities.js` (esquema Zod, columnas, orden de dependencia, regla de borrado). El esquema SQL ya existe; falta añadirles `client_updated_at` en su migración.
+`budgets` (Fase 3) se agrega registrándola en `backend/src/sync/entities.js` (esquema Zod, columnas, orden de dependencia, regla de borrado) y con su `client_updated_at` en una migración. El campo `order` de cada entidad debe ser **único**: define el orden de bloqueo de filas y el de aplicación (el servidor se niega a arrancar si hay empates).
+
+### Fase 2: modelo de préstamos y tarjetas
+
+- **Préstamo = original + movimientos.** `total = principal + Σ aumentos`; `pendiente = total − Σ abonos`. Nada de esto se guarda: dos dispositivos que registren abonos distintos convergen sumando sus movimientos, en lugar de pisarse un saldo guardado (que con LWW perdería uno). `status` (`active`/`paid`) sí se guarda.
+- **Un abono que mueve dinero lo liga a una transacción** (`loan_movements.transaction_id`, `credit_card_payments.transaction_id`): cobro a quien te debe = **ingreso** en la cuenta elegida (categoría de sistema "Préstamo cobrado" + persona); abono a lo que debes = **gasto** ("Pago de préstamo"); pago de tarjeta = **gasto** ("Pago de tarjeta"). Los *aumentos* no mueven saldos (son el registro de un hecho ya ocurrido). Las dos categorías de gasto son de sistema (no se renombran ni se borran); la migración 003 las crea para los usuarios existentes y reutiliza una del mismo nombre si el usuario ya la tenía.
+- **Cadena de dependencia:** `loans`/`credit_cards`/`accounts` → `transactions` → `loan_movements`/`credit_card_payments`. El servidor valida que el préstamo/tarjeta/cuenta/transacción sean propios y estén vivos, y que el tipo de la transacción corresponda (`income` para cobros, `expense` para pagos y abonos a deudas) → `type_mismatch`.
+- **Tarjetas: `pending_balance` sí se guarda** (el usuario lo captura al ver su estado de cuenta) y el cliente lo reduce al registrar un pago, y lo restituye si se elimina. Con LWW por registro, dos dispositivos que paguen a la vez la misma tarjeta pueden perder uno de los descuentos (límite aceptado, ver §7).
 
 ## 3. Tiempos: tres relojes distintos
 
@@ -45,7 +57,7 @@ Sube los cambios locales pendientes (outbox). Requiere `Authorization: Bearer <j
 {
   "changes": [
     {
-      "table": "transactions",              // categories | accounts | transactions
+      "table": "transactions",              // categories | accounts | transactions | loans | credit_cards | subscriptions | loan_movements | credit_card_payments
       "id": "7d0f5a0e-3f43-4a52-9a1c-0c1b8f6d2e11",   // UUID generado en el dispositivo
       "client_updated_at": "2026-10-20T15:04:05.123Z",
       "deleted": false,                     // true = borrar (no lleva data)
@@ -95,14 +107,15 @@ Errores a nivel de lote: `503 batch_too_slow` (el lote agotó su presupuesto de 
 
 | `code` | `status` | Causa | Acción del cliente |
 |---|---|---|---|
-| `in_use` | rejected | Borrar cuenta/categoría que aún tiene transacciones activas (p. ej. creadas desde otro dispositivo). Trae `record` vivo. | Adoptar `record` (se "resucita" localmente) y avisar al usuario. |
+| `in_use` | rejected | Borrar cuenta/categoría con transacciones activas, un préstamo/tarjeta con movimientos/pagos, una cuenta usada por una suscripción o pago, o una transacción que respalda un abono o pago (p. ej. creados desde otro dispositivo). Trae `record` vivo. | Adoptar `record` (se "resucita" localmente) y avisar al usuario. |
 | `system_category` | rejected | Renombrar/borrar una categoría del sistema. Trae `record`. | Adoptar `record`. |
 | `duplicate_name` | rejected | Ya existe una categoría activa con ese nombre y tipo (tras aplicar el resto del lote). Trae `conflicting_id`. **Sin `record`** = era un alta. **Con `record`** = era el renombre de una categoría ya sincronizada. | Sin `record`: **fusionar**: reasignar localmente las transacciones de la categoría local a `conflicting_id` (cada una es una edición nueva en la outbox), borrar físicamente la categoría local (nunca llegó al servidor) y sacarla de la outbox. Con `record`: **conservar** la categoría, adoptar `record` (conserva su nombre anterior) y avisar al usuario; **no** borrarla. |
 | `conflict` | rejected | Escritura concurrente no clasificable. | Reintentar en el siguiente ciclo. (Un alta del mismo id enviada dos veces a la vez ya no cae aquí: el segundo recibe `stale` con el registro.) |
 | `validation_error` | invalid | Esquema/regla (`message` lista campos). | Bug del cliente o dato corrupto; registrar. |
 | `invalid_reference` | invalid | Cuenta/categoría inexistente, ajena o **borrada**. | **No sacar de la outbox todavía.** Si el padre sigue pendiente en la outbox (o fue rechazado en este mismo lote, o va en un lote posterior), reintentar en el siguiente ciclo. Solo si el padre ya llegó como tombstone en un pull: la transacción queda **huérfana**; la app debe pedir al usuario reasignar a otra cuenta/categoría o descartarla. |
 | `category_kind_mismatch` | invalid | Categoría de ingreso en un gasto o viceversa. | Bug del cliente. |
-| `immutable_field` | invalid | Cambió `type`/`bank_id` de cuenta o `kind` de categoría. | Bug del cliente. |
+| `type_mismatch` | invalid | El tipo de la transacción ligada no corresponde al movimiento (un cobro debe ser ingreso; un pago o abono a deuda, gasto). | Bug del cliente. |
+| `immutable_field` | invalid | Cambió `type`/`bank_id` de cuenta, `kind` de categoría, `direction` de préstamo o las referencias de un movimiento/pago. | Bug del cliente. |
 | `invalid_id` | invalid | El `id` ya pertenece a otro usuario. | Regenerar UUID. |
 
 ### Orden de aplicación en el servidor
@@ -110,8 +123,8 @@ Errores a nivel de lote: `503 batch_too_slow` (el lote agotó su presupuesto de 
 El lote se aplica en **una transacción** con un *savepoint* por cambio (un cambio inválido no arrastra a los demás):
 
 0. Antes de aplicar, se **bloquean las filas propias del lote** en orden fijo (tabla, id): dos lotes que se solapan en distinto orden no pueden bloquearse entre sí. Las filas ajenas no se bloquean. Un deadlock residual se reintenta solo (hasta 3 veces).
-1. Altas y ediciones, **padres primero**: `categories` → `accounts` → `transactions`.
-2. Borrados, **hijos primero**: `transactions` → `accounts` → `categories`.
+1. Altas y ediciones, **padres primero**: `categories` → `accounts` → `loans` → `credit_cards` → `transactions` → `subscriptions` → `loan_movements` → `credit_card_payments`.
+2. Borrados, **hijos primero**: el orden inverso (p. ej. `loan_movements` → `transactions` → `loans`).
 3. **Segundo pase** solo para lo que falló con `duplicate_name` o `invalid_reference`: tras los borrados, el nombre pudo liberarse o el padre pudo crearse. Los intentos fallidos no dejaron escrituras, así que repetirlos es seguro.
 
 Así un lote "crear cuenta + sus transacciones", "borrar cuenta + sus transacciones" o "borrar una categoría y recrearla con el mismo nombre" funciona sin importar el orden en que el cliente lo arme. Caso que sigue sin resolverse en un lote: mover transacciones a una categoría nueva del mismo nombre **y** borrar la vieja; la vieja sobrevive (`in_use`), el alta recibe `duplicate_name` con `conflicting_id` = la vieja, y el cliente fusiona como indica la tabla.
@@ -153,7 +166,7 @@ GET /sync/pull?cursor=<next_cursor anterior>&limit=500
 }
 ```
 
-- Las tablas llegan en orden de dependencia (`banks`, `categories`, `accounts`, `transactions`); filas dentro de cada tabla ordenadas por `(updated_at, id)`.
+- Las tablas llegan en orden de dependencia (`banks`, `categories`, `accounts`, `loans`, `credit_cards`, `transactions`, `subscriptions`, `loan_movements`, `credit_card_payments`); filas dentro de cada tabla ordenadas por `(updated_at, id)`.
 - Un registro borrado llega con `deleted_at` no nulo (tombstone) y el cliente lo marca borrado.
 - El cursor es **por tabla** (cada una avanza con su propia clave `(updated_at µs, id)`), dentro de un cursor opaco único. Una página se lee en una sola foto consistente (`REPEATABLE READ`).
 - Un cursor mal formado o con fechas imposibles (30 de febrero, mes 13…) → `400 invalid_cursor`.
@@ -171,7 +184,7 @@ GET /sync/pull?cursor=<next_cursor anterior>&limit=500
 
 **Esquema local sugerido (SQLite)**
 
-- Mismas tablas que el servidor (`categories`, `accounts`, `transactions`, `banks`) más `updated_at` (servidor, `NULL` si nunca sincronizó), `client_updated_at` y `deleted_at`. UUIDs generados en el dispositivo. **Sin claves foráneas forzadas** en SQLite, porque las tablas se paginan por separado y una transacción puede llegar antes que su cuenta. **Una base local por usuario** (archivo con el `user_id` en el nombre, o borrar la base al cerrar sesión): outbox, cursor y datos nunca se mezclan entre cuentas.
+- Mismas tablas que el servidor (`categories`, `accounts`, `transactions`, `loans`, `loan_movements`, `subscriptions`, `credit_cards`, `credit_card_payments`, `banks`) más `updated_at` (servidor, `NULL` si nunca sincronizó), `client_updated_at` y `deleted_at`. UUIDs generados en el dispositivo. **Sin claves foráneas forzadas** en SQLite, porque las tablas se paginan por separado y una transacción puede llegar antes que su cuenta. **Una base local por usuario** (archivo con el `user_id` en el nombre, o borrar la base al cerrar sesión): outbox, cursor y datos nunca se mezclan entre cuentas.
 - `sync_outbox(table, id, client_updated_at, deleted, maybe_sent, attempts, last_error, blocked)`, clave `(table, id)`: un solo renglón por registro con su estado más reciente (coalescencia). **`maybe_sent`** es persistente: se pone en `true` justo **antes** de enviar el renglón y se conserva aunque el usuario lo edite otra vez; sirve para saber que el registro *pudo* llegar al servidor si la respuesta se perdió o la app se cerró.
 - `sync_state(cursor)`.
 - Saldos: `SUM` local; nunca almacenados.
@@ -200,6 +213,8 @@ Ambos lados aplican la misma regla de LWW, por lo que los dispositivos convergen
 - **Empate exacto** de `client_updated_at` entre dispositivos: gana quien llegó primero al servidor; el otro adopta el registro. El resultado es determinista y convergente.
 - **Borrado vs. uso desde otro dispositivo:** el servidor no borra cuentas/categorías con transacciones activas (`in_use`), igual que `DELETE` por REST; el dispositivo que borró lo "resucita" al adoptar el registro.
 - **Transacciones huérfanas:** si otro dispositivo borró (legítimamente) una cuenta o categoría mientras este creaba una transacción offline sobre ella, el push devuelve `invalid_reference`. La UX para reasignar o descartar se define en el Paso 4.
+- **Fase 2, saldo de tarjeta:** `pending_balance` es un valor guardado que cada pago reduce en el dispositivo; si dos dispositivos pagan la misma tarjeta antes de sincronizar, LWW conserva uno de los descuentos y el otro se pierde (el pago queda registrado y su gasto también, pero el saldo mostrado no lo refleja). El usuario puede corregir el saldo a mano.
+- **Fase 2, préstamos:** si dos dispositivos abonan el último tramo antes de sincronizar, el pendiente derivado queda negativo; la app lo muestra como 0 y el préstamo como pagado. Borrar un préstamo o una tarjeta elimina su historial pero **conserva** los ingresos/gastos que generó (el dinero ya se movió); esas transacciones pasan a ser editables como cualquier otra.
 - **Sin cifrado ni firma de lotes** más allá de TLS + JWT.
 - **Un solo `user_id` por token:** la compartición de cuentas entre usuarios queda fuera de alcance.
 - El campo `plan` de usuario (`free`/`premium`) ya existe para limitar sync/dispositivos en el modelo de suscripción; hoy no se aplica ninguna restricción.
