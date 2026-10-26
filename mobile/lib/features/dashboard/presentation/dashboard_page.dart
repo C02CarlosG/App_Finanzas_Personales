@@ -8,6 +8,7 @@ import '../../../core/money/money.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/sync/sync_controller.dart';
 import '../../transactions/presentation/transaction_tile.dart';
+import 'upcoming_payments.dart';
 
 const _recentFilter = TransactionFilter(limit: 10);
 
@@ -104,9 +105,7 @@ class DashboardPage extends ConsumerWidget {
                     ]),
             ),
             const SizedBox(height: 16),
-            Text('Suscripciones y pagos próximos', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            Text('Nada pendiente', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.outline)),
+            const UpcomingPayments(),
           ],
         ),
       ),

@@ -3,9 +3,10 @@
 App de Finanzas Personales. **Offline-first**: la interfaz lee y escribe siempre en SQLite local y el motor de sincronización
 (`lib/core/sync`) la reconcilia con la API según [`docs/sync.md`](../docs/sync.md).
 
-Estado: **Paso 4 (Fase 1 en móvil)**. Login/registro, Bancos (selector visual, cuentas de banco y efectivo), Categorías, ingreso/gasto,
-Inicio con datos reales, Movimientos (filtros, búsqueda, total del mes), sync automático y sesión expirada. Reportes y Perfil
-completo llegan en pasos posteriores (6 y 7); préstamos, suscripciones y tarjetas en el Paso 5.
+Estado: **Paso 5 (Fase 2 en móvil)**. Login/registro, Bancos (selector visual, cuentas de banco y efectivo) con la pestaña
+**Préstamos**, Categorías, ingreso/gasto, Inicio con datos reales y "pagos próximos", Movimientos (filtros, búsqueda, total del
+mes) con las secciones de Gastos **Suscripciones** y **Tarjetas**, sync automático y sesión expirada. Reportes y Perfil completo
+llegan en pasos posteriores (6 y 7).
 
 ## Comandos
 
@@ -46,7 +47,7 @@ lib/
     storage/       SessionStore (token en almacenamiento seguro)
     router/        go_router con redirección por sesión y barra inferior
     providers.dart Riverpod: sesión, base local, motor de sync
-  features/        auth · dashboard · accounts · categories · transactions (formulario y Movimientos) · sync (banner y problemas) · reports · profile
+  features/        auth · dashboard · accounts · categories · transactions (formulario y Movimientos) · loans · subscriptions · cards · sync (banner y problemas) · reports · profile
   core/data/       repositorios con reglas de negocio y providers reactivos; core/demo: datos de ejemplo (DEMO_MODE)
 test/              core · sync (motor, con SQLite en memoria) · features (interfaz) · e2e (API real)
 ```
@@ -91,7 +92,11 @@ rechaza se revisan en **Problemas de sincronización** (editar o eliminar).
 
 ## Pendiente (siguientes pasos)
 
-- Paso 5: préstamos, suscripciones y tarjetas de crédito (Gastos sumará sus sub-pestañas).
+- **Reglas de la Fase 2 (resumen):** el pendiente de un préstamo se deriva (`original + aumentos − abonos`); un abono mueve el saldo de la
+  cuenta elegida (cobro = ingreso "Préstamo cobrado" + persona; pago de una deuda o de tarjeta = gasto de sistema) y su transacción solo se
+  modifica desde el préstamo/tarjeta; los aumentos no mueven saldos; eliminar un préstamo o tarjeta conserva los ingresos/gastos ya
+  registrados. Detalle y razones en [`docs/sync.md`](../docs/sync.md) §2.
+- **Esquema local v2:** `schemaVersion = 2` con migración que agrega las tablas de la Fase 2 a bases creadas con la v1.
 - **Búsqueda y orden sin acentos:** SQLite compara ASCII sin distinguir mayúsculas; "cafe" no encuentra "Café" y las letras acentuadas ordenan al final. Pendiente una normalización.
 - **Web con base local:** `web/sqlite3.wasm` (sqlite3 3.7.1, de [sqlite3.dart](https://github.com/simolus3/sqlite3.dart/releases)) y `web/drift_worker.js` (drift 2.35.2, de [drift](https://github.com/simolus3/drift/releases)) deben coincidir con las versiones de `pubspec.lock`. Si se actualiza drift/sqlite3, hay que volver a descargarlos.
 - iOS: se agrega la plataforma cuando haya Mac/CI para compilarla.

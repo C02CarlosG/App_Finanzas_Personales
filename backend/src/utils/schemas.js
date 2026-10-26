@@ -12,6 +12,9 @@ const money = decimal(/^\d{1,12}(\.\d{1,2})?$/)
 
 const signedMoney = decimal(/^-?\d{1,12}(\.\d{1,2})?$/);
 
+// Cero permitido (p. ej. una tarjeta sin saldo pendiente); nunca negativo.
+const nonNegativeMoney = decimal(/^\d{1,12}(\.\d{1,2})?$/);
+
 const uuid = z.string().uuid();
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida (YYYY-MM-DD)')
   .refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) &&
@@ -20,4 +23,4 @@ const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mes inválido (YYYY-M
 
 const idParams = z.object({ id: uuid });
 
-module.exports = { z, money, signedMoney, uuid, isoDate, month, idParams };
+module.exports = { z, money, nonNegativeMoney, signedMoney, uuid, isoDate, month, idParams };

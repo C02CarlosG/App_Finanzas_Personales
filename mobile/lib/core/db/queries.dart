@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../money/money.dart';
 import 'app_database.dart';
+import 'queries_fase2.dart';
 
 /// Cuenta con su banco y su saldo calculado (saldo inicial + ingresos − gastos).
 class AccountView {
@@ -325,7 +326,7 @@ extension AppQueries on AppDatabase {
         final c = await (select(categories)..where((x) => x.id.equals(e.recordId))).getSingleOrNull();
         return 'Categoría: ${c?.name ?? '(eliminada)'}';
     }
-    return e.entity;
+    return await describePhase2Entry(e) ?? e.entity;
   }
 }
 

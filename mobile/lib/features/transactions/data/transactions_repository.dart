@@ -2,8 +2,10 @@ import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/data/validation_exception.dart';
+import '../../../core/data/validators.dart';
 import '../../../core/db/app_database.dart';
 import '../../../core/db/local_store.dart';
+import '../../../core/db/queries_fase2.dart';
 import '../../../core/money/money.dart';
 
 /// Altas, ediciones y bajas de ingresos y gastos.
@@ -51,6 +53,7 @@ class TransactionsRepository {
   }) async {
     final exists = await (_db.select(_db.transactions)..where((t) => t.id.equals(id) & t.deletedAt.isNull())).getSingleOrNull();
     if (exists == null) throw const ValidationException('El movimiento ya no existe');
+    await _ensureNotLinked(id);
     await _save(
       id: id,
       type: type,
@@ -63,7 +66,18 @@ class TransactionsRepository {
     );
   }
 
-  Future<void> delete(String id) => _store.delete('transactions', id);
+  Future<void> delete(String id) async {
+    await _ensureNotLinked(id);
+    await _store.delete('transactions', id);
+  }
+
+  /// El ingreso/gasto de un abono de préstamo o de un pago de tarjeta se cambia desde su origen:
+  /// editarlo aquí lo dejaría distinto del movimiento que lo respalda.
+  Future<void> _ensureNotLinked(String id) async {
+    final linked = await _db.linkedKindOfTransaction(id);
+    if (linked == 'loan') throw const ValidationException('Este movimiento viene de un abono de préstamo. Modifícalo desde Préstamos.');
+    if (linked == 'card') throw const ValidationException('Este movimiento viene de un pago de tarjeta. Modifícalo desde la tarjeta.');
+  }
 
   Future<void> _save({
     required String id,
@@ -78,7 +92,7 @@ class TransactionsRepository {
     if (type != 'income' && type != 'expense') throw const ValidationException('Tipo de movimiento inválido');
     if (amount.cents <= 0) throw const ValidationException('El monto debe ser mayor a 0');
     if (amount.cents > _maxCents) throw const ValidationException('El monto es demasiado grande');
-    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(occurredOn)) throw const ValidationException('Fecha inválida');
+    validIsoDate(occurredOn);
 
     final account = await (_db.select(_db.accounts)..where((a) => a.id.equals(accountId) & a.deletedAt.isNull())).getSingleOrNull();
     if (account == null) throw const ValidationException('Elige una cuenta');

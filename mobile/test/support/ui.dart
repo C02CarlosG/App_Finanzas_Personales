@@ -78,8 +78,14 @@ Future<void> finishApp(WidgetTester tester) async {
 }
 
 /// Espera a que terminen las escrituras que dispara la interfaz (tiempo real + cuadros).
+///
+/// Una escritura con transacciones anidadas (p. ej. un abono de préstamo) alterna entre tareas en tiempo
+/// real y temporizadores del reloj simulado: por eso se avanzan los dos varias veces.
 Future<void> settleDb(WidgetTester tester) async {
-  await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+  for (var i = 0; i < 6; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    await tester.pump(const Duration(milliseconds: 50));
+  }
   await tester.pumpAndSettle();
 }
 

@@ -4,8 +4,18 @@ import '../money/money.dart';
 import '../sync/stamp.dart';
 import 'app_database.dart';
 
-/// Nombres de entidad sincronizable, en orden de dependencia (padres primero).
-const syncEntities = ['categories', 'accounts', 'transactions'];
+/// Nombres de entidad sincronizable, en orden de dependencia (padres primero). Mismo orden que el
+/// campo `order` de backend/src/sync/entities.js; el nombre es también el de la tabla SQL.
+const syncEntities = [
+  'categories',
+  'accounts',
+  'loans',
+  'credit_cards',
+  'transactions',
+  'subscriptions',
+  'loan_movements',
+  'credit_card_payments',
+];
 
 /// Escrituras locales: cada cambio actualiza la tabla, sella `client_updated_at`
 /// y deja (o reemplaza) el renglón de la outbox, todo en una transacción.
@@ -32,11 +42,9 @@ class LocalStore {
     if (saved != null) clock.offset = Duration(milliseconds: int.parse(saved));
     final row = await db.customSelect(
       'SELECT MAX(s) AS m FROM ('
-      'SELECT MAX(client_updated_at) AS s FROM categories UNION ALL '
-      'SELECT MAX(client_updated_at) FROM accounts UNION ALL '
-      'SELECT MAX(client_updated_at) FROM transactions UNION ALL '
-      'SELECT MAX(client_updated_at) FROM sync_outbox)',
-      readsFrom: {db.categories, db.accounts, db.transactions, db.syncOutbox},
+      '${[for (final e in syncEntities) 'SELECT MAX(client_updated_at) AS s FROM $e'].join(' UNION ALL ')}'
+      ' UNION ALL SELECT MAX(client_updated_at) FROM sync_outbox)',
+      readsFrom: {..._tables.values, db.syncOutbox},
     ).getSingle();
     final floor = row.read<String?>('m');
     if (floor != null) clock.seed(floor);
@@ -119,6 +127,135 @@ class LocalStore {
     _onChanged?.call();
   }
 
+  // ---------- Fase 2 ----------
+
+  Future<void> saveLoan({
+    required String id,
+    required String personName,
+    required String direction,
+    required Money principal,
+    String? dueDate,
+    String status = 'active',
+    String? notes,
+  }) async {
+    await _ensureClock();
+    await db.transaction(() async {
+      final stamp = clock.stamp();
+      await db.into(db.loans).insertOnConflictUpdate(LoansCompanion(
+        id: Value(id),
+        personName: Value(personName),
+        direction: Value(direction),
+        principalCents: Value(principal.cents),
+        dueDate: Value(dueDate),
+        status: Value(status),
+        notes: Value(notes),
+        clientUpdatedAt: Value(stamp),
+      ));
+      await enqueue('loans', id, stamp);
+    });
+    _onChanged?.call();
+  }
+
+  Future<void> saveLoanMovement({
+    required String id,
+    required String loanId,
+    required String kind,
+    required Money amount,
+    required String occurredOn,
+    String? transactionId,
+  }) async {
+    await _ensureClock();
+    await db.transaction(() async {
+      final stamp = clock.stamp();
+      await db.into(db.loanMovements).insertOnConflictUpdate(LoanMovementsCompanion(
+        id: Value(id),
+        loanId: Value(loanId),
+        kind: Value(kind),
+        amountCents: Value(amount.cents),
+        occurredOn: Value(occurredOn),
+        transactionId: Value(transactionId),
+        clientUpdatedAt: Value(stamp),
+      ));
+      await enqueue('loan_movements', id, stamp);
+    });
+    _onChanged?.call();
+  }
+
+  Future<void> saveSubscription({
+    required String id,
+    required String name,
+    required Money amount,
+    required String renewalDate,
+    required String period,
+    String? accountId,
+    bool active = true,
+  }) async {
+    await _ensureClock();
+    await db.transaction(() async {
+      final stamp = clock.stamp();
+      await db.into(db.subscriptions).insertOnConflictUpdate(SubscriptionsCompanion(
+        id: Value(id),
+        name: Value(name),
+        amountCents: Value(amount.cents),
+        renewalDate: Value(renewalDate),
+        period: Value(period),
+        accountId: Value(accountId),
+        active: Value(active),
+        clientUpdatedAt: Value(stamp),
+      ));
+      await enqueue('subscriptions', id, stamp);
+    });
+    _onChanged?.call();
+  }
+
+  Future<void> saveCreditCard({
+    required String id,
+    String? bankId,
+    required String name,
+    required Money pendingBalance,
+    String? dueDate,
+  }) async {
+    await _ensureClock();
+    await db.transaction(() async {
+      final stamp = clock.stamp();
+      await db.into(db.creditCards).insertOnConflictUpdate(CreditCardsCompanion(
+        id: Value(id),
+        bankId: Value(bankId),
+        name: Value(name),
+        pendingBalanceCents: Value(pendingBalance.cents),
+        dueDate: Value(dueDate),
+        clientUpdatedAt: Value(stamp),
+      ));
+      await enqueue('credit_cards', id, stamp);
+    });
+    _onChanged?.call();
+  }
+
+  Future<void> saveCreditCardPayment({
+    required String id,
+    required String creditCardId,
+    String? accountId,
+    String? transactionId,
+    required Money amount,
+    required String paidOn,
+  }) async {
+    await _ensureClock();
+    await db.transaction(() async {
+      final stamp = clock.stamp();
+      await db.into(db.creditCardPayments).insertOnConflictUpdate(CreditCardPaymentsCompanion(
+        id: Value(id),
+        creditCardId: Value(creditCardId),
+        accountId: Value(accountId),
+        transactionId: Value(transactionId),
+        amountCents: Value(amount.cents),
+        paidOn: Value(paidOn),
+        clientUpdatedAt: Value(stamp),
+      ));
+      await enqueue('credit_card_payments', id, stamp);
+    });
+    _onChanged?.call();
+  }
+
   /// Borra un registro. Se elimina físicamente (y se quita de la outbox) solo si **nunca pudo
   /// llegar al servidor**: sin `updated_at`, sin sincronización en curso y sin marca `maybe_sent`
   /// (un envío cuya respuesta se perdió). En otro caso queda como tombstone local con un renglón
@@ -163,44 +300,33 @@ class LocalStore {
   Future<void> _removeOutbox(String entity, String id) =>
       (db.delete(db.syncOutbox)..where((t) => t.entity.equals(entity) & t.recordId.equals(id))).go();
 
+  late final Map<String, TableInfo> _tables = {
+    for (final t in db.allTables)
+      if (syncEntities.contains(t.actualTableName)) t.actualTableName: t,
+  };
+
+  TableInfo _table(String entity) => _tables[entity] ?? (throw ArgumentError('Entidad desconocida: $entity'));
+
   Future<String?> _updatedAt(String entity, String id) async {
-    switch (entity) {
-      case 'categories':
-        return (await (db.select(db.categories)..where((t) => t.id.equals(id))).getSingleOrNull())?.updatedAt;
-      case 'accounts':
-        return (await (db.select(db.accounts)..where((t) => t.id.equals(id))).getSingleOrNull())?.updatedAt;
-      case 'transactions':
-        return (await (db.select(db.transactions)..where((t) => t.id.equals(id))).getSingleOrNull())?.updatedAt;
-    }
-    throw ArgumentError('Entidad desconocida: $entity');
+    final row = await db.customSelect(
+      'SELECT updated_at FROM $entity WHERE id = ?',
+      variables: [Variable.withString(id)],
+      readsFrom: {_table(entity)},
+    ).getSingleOrNull();
+    return row?.read<String?>('updated_at');
   }
 
-  Future<void> _hardDelete(String entity, String id) async {
-    switch (entity) {
-      case 'categories':
-        await (db.delete(db.categories)..where((t) => t.id.equals(id))).go();
-      case 'accounts':
-        await (db.delete(db.accounts)..where((t) => t.id.equals(id))).go();
-      case 'transactions':
-        await (db.delete(db.transactions)..where((t) => t.id.equals(id))).go();
-      default:
-        throw ArgumentError('Entidad desconocida: $entity');
-    }
-  }
+  Future<void> _hardDelete(String entity, String id) => db.customUpdate(
+        'DELETE FROM $entity WHERE id = ?',
+        variables: [Variable.withString(id)],
+        updates: {_table(entity)},
+        updateKind: UpdateKind.delete,
+      );
 
-  Future<void> _markDeleted(String entity, String id, String stamp) async {
-    switch (entity) {
-      case 'categories':
-        await (db.update(db.categories)..where((t) => t.id.equals(id)))
-            .write(CategoriesCompanion(deletedAt: Value(stamp), clientUpdatedAt: Value(stamp)));
-      case 'accounts':
-        await (db.update(db.accounts)..where((t) => t.id.equals(id)))
-            .write(AccountsCompanion(deletedAt: Value(stamp), clientUpdatedAt: Value(stamp)));
-      case 'transactions':
-        await (db.update(db.transactions)..where((t) => t.id.equals(id)))
-            .write(TransactionsCompanion(deletedAt: Value(stamp), clientUpdatedAt: Value(stamp)));
-      default:
-        throw ArgumentError('Entidad desconocida: $entity');
-    }
-  }
+  Future<void> _markDeleted(String entity, String id, String stamp) => db.customUpdate(
+        'UPDATE $entity SET deleted_at = ?, client_updated_at = ? WHERE id = ?',
+        variables: [Variable.withString(stamp), Variable.withString(stamp), Variable.withString(id)],
+        updates: {_table(entity)},
+        updateKind: UpdateKind.update,
+      );
 }

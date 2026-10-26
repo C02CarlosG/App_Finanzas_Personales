@@ -1,4 +1,5 @@
 import 'package:finanzas_personales/core/db/queries.dart';
+import 'package:finanzas_personales/core/db/queries_fase2.dart';
 import 'package:finanzas_personales/core/demo/demo_seed.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -18,6 +19,9 @@ void main() {
     expect(accounts.where((a) => a.isCash), hasLength(1));
     expect((await h.db.watchTransactions(const TransactionFilter()).first).length, greaterThan(20));
     expect(await h.outbox(), isEmpty); // en demo no hay nada que sincronizar
+    expect((await h.db.watchLoans().first).length, 2);
+    expect((await h.db.watchSubscriptions().first).length, 4);
+    expect((await h.db.watchCreditCards().first).length, 2);
     expect(accounts.every((a) => !a.pending), isTrue);
   });
 

@@ -8,22 +8,38 @@ import '../../../core/format/dates.dart';
 import '../../../core/ui/fit_trailing.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/sync/sync_controller.dart';
+import '../../cards/presentation/cards_list.dart';
+import '../../subscriptions/presentation/subscriptions_list.dart';
 import 'transaction_tile.dart';
 
 /// Movimientos (spec 4.3/4.4/5.6/5.7): ingresos y gastos con filtros por categoría y cuenta, búsqueda
-/// por descripción y total del mes. Se llega desde Inicio ("Ver todos"). En el Paso 5, Gastos sumará las
-/// sub-pestañas Suscripciones y Pagos de tarjeta.
-class MovementsPage extends StatelessWidget {
+/// por descripción y total del mes. Se llega desde Inicio ("Ver todos"). Gastos suma las secciones
+/// Suscripciones y Tarjetas (pagos de tarjeta de crédito), como pide el spec 5.7.
+class MovementsPage extends StatefulWidget {
   const MovementsPage({super.key, this.initialTab = 1});
 
   /// 0 = Ingresos, 1 = Gastos.
   final int initialTab;
 
   @override
+  State<MovementsPage> createState() => _MovementsPageState();
+}
+
+class _MovementsPageState extends State<MovementsPage> {
+  /// 0 = Generales, 1 = Suscripciones, 2 = Tarjetas (solo aplica a la pestaña Gastos).
+  final _section = ValueNotifier<int>(0);
+
+  @override
+  void dispose() {
+    _section.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: 2,
-      initialIndex: initialTab,
+      initialIndex: widget.initialTab,
       child: Builder(builder: (context) {
         final tabs = DefaultTabController.of(context);
         return Scaffold(
@@ -34,13 +50,55 @@ class MovementsPage extends StatelessWidget {
           floatingActionButton: FloatingActionButton.extended(
             heroTag: null, // varias pantallas con FAB conviven (pestañas + rutas); sin etiqueta no chocan en la transición
             key: const Key('agregar-movimiento'),
-            onPressed: () => context.push(AppRoutes.transactionNew(tabs.index == 0 ? 'income' : 'expense')),
+            onPressed: () {
+              final route = tabs.index == 0
+                  ? AppRoutes.transactionNew('income')
+                  : switch (_section.value) {
+                      1 => AppRoutes.subscriptionNew,
+                      2 => AppRoutes.cardNew,
+                      _ => AppRoutes.transactionNew('expense'),
+                    };
+              context.push(route);
+            },
             icon: const Icon(Icons.add),
             label: const Text('Agregar'),
           ),
-          body: const TabBarView(children: [_MovementList(type: 'income'), _MovementList(type: 'expense')]),
+          body: TabBarView(children: [const _MovementList(type: 'income'), _ExpensesTab(section: _section)]),
         );
       }),
+    );
+  }
+}
+
+/// Pestaña Gastos: gastos generales, suscripciones y pagos de tarjeta de crédito.
+class _ExpensesTab extends StatelessWidget {
+  const _ExpensesTab({required this.section});
+
+  final ValueNotifier<int> section;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: section,
+      builder: (context, current, _) => Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Wrap(spacing: 8, runSpacing: 4, children: [
+              for (final (i, label, key) in const [
+                (0, 'Generales', 'seccion-generales'),
+                (1, 'Suscripciones', 'seccion-suscripciones'),
+                (2, 'Tarjetas', 'seccion-tarjetas'),
+              ])
+                ChoiceChip(key: Key(key), label: Text(label), selected: current == i, onSelected: (_) => section.value = i),
+            ]),
+          ),
+        ),
+        Expanded(
+          child: IndexedStack(index: current, children: const [_MovementList(type: 'expense'), SubscriptionsList(), CardsList()]),
+        ),
+      ]),
     );
   }
 }

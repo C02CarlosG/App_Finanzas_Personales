@@ -70,6 +70,13 @@ class AccountsRepository {
     if (used.isNotEmpty) {
       throw const ValidationException('Esta cuenta tiene movimientos. Elimínalos o muévelos a otra cuenta primero.');
     }
+    final subscription = await (_db.select(_db.subscriptions)
+          ..where((s) => s.accountId.equals(id) & s.deletedAt.isNull())
+          ..limit(1))
+        .get();
+    if (subscription.isNotEmpty) {
+      throw const ValidationException('Una suscripción usa esta cuenta. Cámbiala o elimina la suscripción primero.');
+    }
     await _store.delete('accounts', id);
   }
 

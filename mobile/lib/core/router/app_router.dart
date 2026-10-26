@@ -6,9 +6,14 @@ import '../../features/accounts/presentation/accounts_page.dart';
 import '../../features/accounts/presentation/add_account_page.dart';
 import '../../features/accounts/presentation/edit_account_page.dart';
 import '../../features/auth/presentation/login_page.dart';
+import '../../features/cards/presentation/card_detail_page.dart';
+import '../../features/cards/presentation/card_form_page.dart';
 import '../../features/categories/presentation/categories_page.dart';
 import '../../features/dashboard/presentation/dashboard_page.dart';
+import '../../features/loans/presentation/loan_detail_page.dart';
+import '../../features/loans/presentation/loan_form_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
+import '../../features/subscriptions/presentation/subscription_form_page.dart';
 import '../../features/sync/presentation/problems_page.dart';
 import '../../features/reports/presentation/reports_page.dart';
 import '../../features/transactions/presentation/movements_page.dart';
@@ -23,6 +28,14 @@ abstract final class AppRoutes {
   static const problems = '/problemas';
   static const accountNew = '/cuentas/nueva';
   static String account(String id) => '/cuentas/$id';
+  static const loanNew = '/prestamos/nuevo';
+  static String loan(String id) => '/prestamos/$id';
+  static String loanEdit(String id) => '/prestamos/$id/editar';
+  static const subscriptionNew = '/suscripciones/nueva';
+  static String subscription(String id) => '/suscripciones/$id';
+  static const cardNew = '/tarjetas/nueva';
+  static String card(String id) => '/tarjetas/$id';
+  static String cardEdit(String id) => '/tarjetas/$id/editar';
   static const movements = '/movimientos';
   static const transactionNewPath = '/movimientos/nuevo';
   static String transactionNew(String type) => '/movimientos/nuevo?tipo=$type';
@@ -73,6 +86,15 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/movimientos/:id',
         builder: (_, state) => TransactionFormPage(transactionId: state.pathParameters['id']),
       ),
+      // Fase 2. Las rutas fijas ('nuevo/a') van antes que las que llevan :id.
+      GoRoute(path: AppRoutes.loanNew, builder: (_, _) => const LoanFormPage()),
+      GoRoute(path: '/prestamos/:id', builder: (_, state) => LoanDetailPage(loanId: state.pathParameters['id']!)),
+      GoRoute(path: '/prestamos/:id/editar', builder: (_, state) => LoanFormPage(loanId: state.pathParameters['id'])),
+      GoRoute(path: AppRoutes.subscriptionNew, builder: (_, _) => const SubscriptionFormPage()),
+      GoRoute(path: '/suscripciones/:id', builder: (_, state) => SubscriptionFormPage(subscriptionId: state.pathParameters['id'])),
+      GoRoute(path: AppRoutes.cardNew, builder: (_, _) => const CardFormPage()),
+      GoRoute(path: '/tarjetas/:id', builder: (_, state) => CardDetailPage(cardId: state.pathParameters['id']!)),
+      GoRoute(path: '/tarjetas/:id/editar', builder: (_, state) => CardFormPage(cardId: state.pathParameters['id'])),
       GoRoute(
         path: '/cuentas/:id',
         builder: (_, state) => EditAccountPage(accountId: state.pathParameters['id']!),

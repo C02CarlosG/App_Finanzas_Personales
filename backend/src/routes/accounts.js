@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db/pool');
 const validate = require('../middleware/validate');
 const { AppError, notFound } = require('../utils/errors');
+const { accountHasLinks } = require('../services/links');
 const { z, signedMoney, uuid, idParams } = require('../utils/schemas');
 
 const router = express.Router();
@@ -83,6 +84,7 @@ router.delete('/:id', validate({ params: idParams }), async (req, res) => {
   const used = await pool.query(
     'SELECT 1 FROM transactions WHERE account_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1', [id, req.userId]);
   if (used.rowCount) throw new AppError(409, 'La cuenta tiene transacciones; elimínalas o muévelas primero', 'in_use');
+  if (await accountHasLinks(pool, req.userId, id)) throw new AppError(409, 'La cuenta tiene suscripciones o pagos de tarjeta', 'in_use');
   const { rowCount } = await pool.query(
     'UPDATE accounts SET deleted_at = now() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL', [id, req.userId]);
   if (!rowCount) throw notFound('Cuenta');
