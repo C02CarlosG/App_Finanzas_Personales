@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/db/queries_fase3.dart';
 import '../../../core/format/dates.dart';
-import '../../../core/money/money.dart';
 
 /// Una porción del pastel: su etiqueta, monto en centavos y color.
 class PieSlice {
@@ -228,5 +227,3 @@ List<PieSlice> pieSlices(List<CategorySpend> spend, {required Color Function(Cat
   ];
 }
 
-/// Texto "$1,234.50" para un total en centavos.
-String moneyText(int cents) => Money(cents).format();

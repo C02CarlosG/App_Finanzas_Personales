@@ -1,4 +1,6 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:finanzas_personales/core/data/validation_exception.dart';
+import 'package:finanzas_personales/core/db/app_database.dart';
 import 'package:finanzas_personales/core/db/queries_fase3.dart';
 import 'package:finanzas_personales/core/money/money.dart';
 import 'package:finanzas_personales/features/budgets/data/budgets_repository.dart';
@@ -107,6 +109,17 @@ void main() {
       expect((await h.db.select(h.db.budgets).get()).where((b) => b.deletedAt == null), isEmpty);
     });
 
+    test('si una sincronización dejó dos presupuestos vivos de la categoría, guardar conserva el del servidor y quita el otro', () async {
+      await h.db.into(h.db.budgets).insert(BudgetsCompanion.insert(
+          id: 'local', categoryId: Catalog.comida, monthlyLimitCents: 10000, clientUpdatedAt: '2026-10-20T10:00:00.000000Z'));
+      await h.db.into(h.db.budgets).insert(BudgetsCompanion.insert(
+          id: 'servidor', categoryId: Catalog.comida, monthlyLimitCents: 20000, updatedAt: const Value('2026-10-20T09:00:00.000000Z'), clientUpdatedAt: '2026-10-20T09:00:00.000000Z'));
+      final id = await budgets.save(categoryId: Catalog.comida, limit: Money.parse('300'));
+      expect(id, 'servidor');
+      final live = await (h.db.select(h.db.budgets)..where((b) => b.deletedAt.isNull())).get();
+      expect([for (final b in live) (b.id, b.monthlyLimitCents)], [('servidor', 30000)]);
+    });
+
     test('la edición y la baja quedan en la outbox para subirse', () async {
       final id = await budgets.save(categoryId: Catalog.comida, limit: Money.parse('1000'));
       expect((await h.outbox()).where((e) => e.entity == 'budgets' && e.recordId == id), hasLength(1));
@@ -128,6 +141,7 @@ void main() {
       expect(budgetAlertFor(progress('850'), progress('1100'))?.status, BudgetStatus.exceeded);
       expect(budgetAlertFor(progress('1100'), progress('1200')), isNull); // ya estaba excedido
       expect(budgetAlertFor(progress('1100'), progress('100')), isNull); // mejora
+      expect(budgetAlertFor(progress('1100'), progress('900')), isNull); // excedido → aviso también es mejora: no avisa
       expect(budgetAlertFor(progress('100'), null), isNull);
     });
 

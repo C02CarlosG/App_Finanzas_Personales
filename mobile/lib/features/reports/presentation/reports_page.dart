@@ -16,10 +16,14 @@ import 'charts.dart';
 /// Reportes (spec 4.6/5.9) y presupuestos (spec 4.7): ingresos contra gastos del mes, gastos por categoría y
 /// tendencia de 3 meses; en la segunda pestaña, los límites mensuales por categoría y su avance.
 class ReportsPage extends ConsumerStatefulWidget {
-  const ReportsPage({super.key, this.initialTab = 0});
+  const ReportsPage({super.key, this.initialTab = 0, this.request = 0});
 
   /// 0 = Resumen, 1 = Presupuestos.
   final int initialTab;
+
+  /// Cambia cada vez que se pide una pestaña (enlace `?t=`): tocar de nuevo el mismo aviso desde Inicio
+  /// vuelve a llevar a Presupuestos aunque el usuario haya cambiado de pestaña a mano.
+  final int request;
 
   @override
   ConsumerState<ReportsPage> createState() => _ReportsPageState();
@@ -42,7 +46,7 @@ class _ReportsPageState extends ConsumerState<ReportsPage> with SingleTickerProv
   void didUpdateWidget(ReportsPage old) {
     super.didUpdateWidget(old);
     // Un enlace desde Inicio ("ver presupuestos") reutiliza esta pantalla con otra pestaña inicial.
-    if (old.initialTab != widget.initialTab) _tabs.animateTo(widget.initialTab);
+    if (old.initialTab != widget.initialTab || old.request != widget.request) _tabs.animateTo(widget.initialTab);
   }
 
   @override
@@ -110,7 +114,7 @@ class _SummaryTab extends ConsumerWidget {
     final totalSpend = spend.fold<int>(0, (sum, c) => sum + c.total.cents);
 
     Color colorOf(CategorySpend c) => c.categoryId == null ? theme.colorScheme.outline : categoryDisplayColor(c.color, c.name);
-    final slices = pieSlices(spend, colorOf: colorOf, otherColor: theme.colorScheme.outline);
+    final slices = pieSlices(spend, colorOf: colorOf, otherColor: const Color(0xFF78909C)); // "Otras" (gris azulado) ≠ "Sin categoría" (gris)
 
     return RefreshIndicator(
       onRefresh: () => ref.read(syncControllerProvider.notifier).syncNow(),

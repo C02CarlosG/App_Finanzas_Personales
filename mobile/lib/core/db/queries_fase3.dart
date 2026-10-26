@@ -79,7 +79,8 @@ class BudgetProgress {
 /// El aviso al guardar un gasto: solo si el presupuesto cambió a un estado peor ([before] → [after]).
 BudgetProgress? budgetAlertFor(BudgetProgress? before, BudgetProgress? after) {
   if (after == null || after.status == BudgetStatus.ok) return null;
-  return before?.status == after.status ? null : after;
+  final was = before?.status.index ?? BudgetStatus.ok.index;
+  return after.status.index > was ? after : null; // ok < warning < exceeded: mejorar o quedarse igual no avisa
 }
 
 extension Fase3Queries on AppDatabase {

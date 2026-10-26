@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:finanzas_personales/core/db/app_database.dart';
 import 'package:finanzas_personales/core/db/queries.dart';
@@ -100,6 +101,81 @@ void main() {
     await h.engine.run();
     expect((await h.db.select(h.db.budgets).get()).map((r) => r.id), [id]);
     expect((await h.outbox()).where((e) => e.entity == 'budgets'), hasLength(1)); // la edición sigue pendiente
+  });
+
+  test('duplicate_budget con la baja del presupuesto viejo pendiente en otro lote: el nuevo se conserva y se reintenta', () async {
+    // Este dispositivo quitó el presupuesto X (la baja sigue en la outbox) y creó Y para la misma categoría.
+    await h.db.into(h.db.budgets).insert(BudgetsCompanion.insert(
+        id: 'x', categoryId: Catalog.comida, monthlyLimitCents: 10000, updatedAt: const Value('2026-10-20T10:00:00.000000Z'), clientUpdatedAt: '2026-10-20T10:00:00.000000Z'));
+    await h.store.delete('budgets', 'x'); // tombstone local + baja en la outbox
+    final y = await budgets.save(categoryId: Catalog.comida, limit: Money.parse('700'));
+    h.api.onPush = (changes) async => pushResponse([
+          for (final c in changes)
+            c['table'] == 'budgets' && c['id'] == y
+                ? result(c, 'rejected', code: 'duplicate_budget', extra: {'conflicting_id': 'x'})
+                : result(c, 'applied', record: c['deleted'] == true ? null : echo(c)),
+        ]);
+    expect((await h.outbox()).where((e) => e.entity == 'budgets').map((e) => e.recordId).toSet(), {'x', y});
+    // El servidor responde a Y (duplicate_budget) antes de que llegue la baja de X; el motor procesa las respuestas en ese orden.
+    await h.engine.run();
+    final rows = await h.db.select(h.db.budgets).get();
+    expect(rows.any((r) => r.id == y && r.deletedAt == null), isTrue, reason: 'el nuevo no se descartó');
+  });
+
+  test('fusionar una categoría duplicada lleva su presupuesto a la que sobrevive (o lo quita si esa ya tiene uno)', () async {
+    // Categoría creada aquí sin conexión con el nombre de una que ya existe en el servidor, con presupuesto.
+    await h.store.saveCategory(id: 'cat-nueva', kind: 'expense', name: 'Comida (nueva)');
+    final mine = await budgets.save(categoryId: 'cat-nueva', limit: Money.parse('400'));
+    h.api.onPush = (changes) async => pushResponse([
+          for (final c in changes)
+            c['table'] == 'categories' && c['id'] == 'cat-nueva'
+                ? result(c, 'rejected', code: 'duplicate_name', extra: {'conflicting_id': Catalog.comida, 'message': 'x'})
+                : result(c, 'invalid', code: 'invalid_reference', extra: {'message': 'x'}),
+        ]);
+    await h.engine.run();
+    final moved = await (h.db.select(h.db.budgets)..where((b) => b.id.equals(mine))).getSingle();
+    expect(moved.categoryId, Catalog.comida);
+    expect((await h.outbox()).where((e) => e.recordId == mine), hasLength(1)); // sigue pendiente, ya sobre la categoría vigente
+
+    // Si la categoría que sobrevive ya tiene presupuesto, el local sobra.
+    await h.store.saveCategory(id: 'cat-otra', kind: 'expense', name: 'Otra (nueva)');
+    final sobra = await budgets.save(categoryId: 'cat-otra', limit: Money.parse('50'));
+    await h.db.into(h.db.budgets).insert(BudgetsCompanion.insert(
+        id: 'del-servidor', categoryId: Catalog.vivienda, monthlyLimitCents: 90000, updatedAt: const Value('2026-10-20T10:00:00.000000Z'), clientUpdatedAt: '2026-10-20T10:00:00.000000Z'));
+    h.api.onPush = (changes) async => pushResponse([
+          for (final c in changes)
+            c['table'] == 'categories' && c['id'] == 'cat-otra'
+                ? result(c, 'rejected', code: 'duplicate_name', extra: {'conflicting_id': Catalog.vivienda, 'message': 'x'})
+                : result(c, 'invalid', code: 'invalid_reference', extra: {'message': 'x'}),
+        ]);
+    await h.engine.run();
+    expect((await h.db.select(h.db.budgets).get()).any((b) => b.id == sobra), isFalse);
+    expect((await h.outbox()).any((e) => e.recordId == sobra), isFalse);
+  });
+
+  test('si otro dispositivo elimina la categoría, el presupuesto local sin enviar se quita y deja de reintentarse', () async {
+    await h.store.saveCategory(id: 'cat-x', kind: 'expense', name: 'Temporal');
+    final id = await budgets.save(categoryId: 'cat-x', limit: Money.parse('100'));
+    h.api.onPush = (changes) async => pushResponse([
+          for (final c in changes)
+            c['table'] == 'budgets' ? result(c, 'invalid', code: 'invalid_reference', extra: {'message': 'x'}) : result(c, 'applied', record: echo(c)),
+        ]);
+    h.api.pullQueue.add(pullPage(categories: [
+      {
+        'id': 'cat-x',
+        'kind': 'expense',
+        'name': 'Temporal',
+        'icon': null,
+        'color': null,
+        'is_system': false,
+        'updated_at': '2026-10-21T00:00:00.000000Z',
+        'client_updated_at': '2026-10-21T00:00:00.000000Z',
+        'deleted_at': '2026-10-21T00:00:00.000000Z',
+      }
+    ]));
+    await h.engine.run();
+    expect((await h.db.select(h.db.budgets).get()).any((b) => b.id == id), isFalse);
+    expect(await h.outbox(), isEmpty);
   });
 
   test('describeOutboxEntry no falla con presupuestos (cae al nombre de la entidad)', () async {

@@ -202,6 +202,17 @@ void main() {
       await finishApp(tester);
     });
 
+    testWidgets('un presupuesto con un umbral distinto de las opciones (p. ej. 75 %) lo muestra seleccionado', (tester) async {
+      await seedAccount(tester);
+      await tester.runAsync(() => budgets.save(categoryId: Catalog.comida, limit: Money.parse('1000'), alertPercent: 75));
+      await openReports(tester, budgetsTab: true);
+      await tester.tap(find.byKey(Key('presupuesto-${Catalog.comida}')));
+      await tester.pumpAndSettle();
+      expect(tester.widget<ChoiceChip>(find.byKey(const Key('umbral-75'))).selected, isTrue);
+      expect(tester.widget<ChoiceChip>(find.byKey(const Key('umbral-80'))).selected, isFalse);
+      await finishApp(tester);
+    });
+
     testWidgets('un límite inválido no se guarda; las categorías con presupuesto no se ofrecen otra vez', (tester) async {
       await seedAccount(tester);
       await tester.runAsync(() async {
@@ -268,6 +279,24 @@ void main() {
       await tester.tap(find.byKey(Key('alerta-presupuesto-${Catalog.comida}')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('agregar-presupuesto')), findsOneWidget); // abrió Reportes en Presupuestos
+      await finishApp(tester);
+    });
+
+    testWidgets('tocar de nuevo el aviso de Inicio vuelve a abrir Presupuestos aunque se haya cambiado de pestaña a mano', (tester) async {
+      await seedAccount(tester);
+      await tester.runAsync(() => budgets.save(categoryId: Catalog.comida, limit: Money.parse('1000')));
+      await spend(tester, 'g1', '900', '2026-10-05');
+      await pumpApp(tester, h, extra: [todayProvider.overrideWithValue(today)]);
+      await tester.tap(find.byKey(Key('alerta-presupuesto-${Catalog.comida}')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('agregar-presupuesto')), findsOneWidget);
+      await tester.tap(find.descendant(of: find.byType(TabBar), matching: find.text('Resumen')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('agregar-presupuesto')), findsNothing);
+      await goToTab(tester, 'Inicio');
+      await tester.tap(find.byKey(Key('alerta-presupuesto-${Catalog.comida}')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('agregar-presupuesto')), findsOneWidget); // otra vez en Presupuestos
       await finishApp(tester);
     });
 

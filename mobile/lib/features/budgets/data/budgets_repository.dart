@@ -24,9 +24,18 @@ class BudgetsRepository {
     if (category == null) throw const ValidationException('Elige una categoría');
     if (category.kind != 'expense') throw const ValidationException('Un presupuesto es de una categoría de gastos');
     if (alertPercent < 1 || alertPercent > 100) throw const ValidationException('El aviso debe estar entre 1 % y 100 %');
-    final existing = await (_db.select(_db.budgets)..where((b) => b.categoryId.equals(categoryId) & b.deletedAt.isNull())).getSingleOrNull();
-    final id = existing?.id ?? _newId();
-    await _store.saveBudget(id: id, categoryId: categoryId, monthlyLimit: positiveMoney(limit), alertPercent: alertPercent);
+    final money = positiveMoney(limit);
+    // Normalmente hay uno solo. Si una sincronización dejó dos vivos para la categoría, se conserva el que ya está en
+    // el servidor (o el primero) y se quitan los demás: así se corrige solo al guardar.
+    final live = await (_db.select(_db.budgets)..where((b) => b.categoryId.equals(categoryId) & b.deletedAt.isNull())).get();
+    final keeper = live.where((b) => b.updatedAt != null).firstOrNull ?? live.firstOrNull;
+    final id = keeper?.id ?? _newId();
+    await _db.transaction(() async {
+      for (final extra in live.where((b) => b.id != keeper?.id)) {
+        await _store.delete('budgets', extra.id);
+      }
+      await _store.saveBudget(id: id, categoryId: categoryId, monthlyLimit: money, alertPercent: alertPercent);
+    });
     return id;
   }
 

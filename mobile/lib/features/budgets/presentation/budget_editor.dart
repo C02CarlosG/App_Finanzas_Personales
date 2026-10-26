@@ -128,7 +128,7 @@ class _BudgetEditorState extends ConsumerState<_BudgetEditor> {
             Text('Avisarme al llegar a', style: theme.textTheme.bodySmall),
             const SizedBox(height: 4),
             Wrap(spacing: 8, runSpacing: 4, children: [
-              for (final p in BudgetsRepository.alertChoices)
+              for (final p in ({...BudgetsRepository.alertChoices, _alert}.toList()..sort()))
                 ChoiceChip(key: Key('umbral-$p'), label: Text('$p %'), selected: _alert == p, onSelected: (_) => setState(() => _alert = p)),
             ]),
             if (_error != null) ...[

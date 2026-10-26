@@ -27,7 +27,7 @@ class BudgetAlerts extends ConsumerWidget {
         Card(
           child: ListTile(
             key: Key('alerta-presupuesto-${b.categoryId}'),
-            onTap: () => context.go(AppRoutes.budgets),
+            onTap: () => context.go(AppRoutes.budgetsLink()),
             leading: Icon(b.status == BudgetStatus.exceeded ? Icons.error_outline : Icons.warning_amber_rounded, color: budgetColor(context, b.status)),
             title: Text(b.categoryName, maxLines: 1, overflow: TextOverflow.ellipsis),
             subtitle: Text('${budgetStatusText(b)} · ${b.spent.format()} de ${b.limit.format()}', maxLines: 3, overflow: TextOverflow.ellipsis),
