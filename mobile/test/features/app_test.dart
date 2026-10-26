@@ -150,7 +150,7 @@ void main() {
     expect(find.text('Ingresos'), findsWidgets);
     expect(find.text('Gastos'), findsWidgets);
     await goTo('Reportes');
-    expect(find.textContaining('Ingresos contra gastos'), findsOneWidget);
+    expect(find.byKey(const Key('resumen-ingresos')), findsOneWidget);
     await goTo('Perfil');
     expect(find.text('ana@example.com'), findsOneWidget);
     await goTo('Inicio');

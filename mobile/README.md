@@ -3,10 +3,11 @@
 App de Finanzas Personales. **Offline-first**: la interfaz lee y escribe siempre en SQLite local y el motor de sincronización
 (`lib/core/sync`) la reconcilia con la API según [`docs/sync.md`](../docs/sync.md).
 
-Estado: **Paso 5 (Fase 2 en móvil)**. Login/registro, Bancos (selector visual, cuentas de banco y efectivo) con la pestaña
+Estado: **Paso 6 (Fase 3 en móvil)**. Login/registro, Bancos (selector visual, cuentas de banco y efectivo) con la pestaña
 **Préstamos**, Categorías, ingreso/gasto, Inicio con datos reales y "pagos próximos", Movimientos (filtros, búsqueda, total del
-mes) con las secciones de Gastos **Suscripciones** y **Tarjetas**, sync automático y sesión expirada. Reportes y Perfil completo
-llegan en pasos posteriores (6 y 7).
+mes) con las secciones de Gastos **Suscripciones** y **Tarjetas**, **Reportes** (ingresos contra gastos, pastel por categoría y
+tendencia de 3 meses) con **Presupuestos** y avisos dentro de la app, sync automático y sesión expirada. Perfil completo y
+exportación llegan en el Paso 7.
 
 ## Comandos
 
@@ -96,7 +97,8 @@ rechaza se revisan en **Problemas de sincronización** (editar o eliminar).
   cuenta elegida (cobro = ingreso "Préstamo cobrado" + persona; pago de una deuda o de tarjeta = gasto de sistema) y su transacción solo se
   modifica desde el préstamo/tarjeta; los aumentos no mueven saldos; eliminar un préstamo o tarjeta conserva los ingresos/gastos ya
   registrados. Detalle y razones en [`docs/sync.md`](../docs/sync.md) §2.
-- **Esquema local v2:** `schemaVersion = 2` con migración que agrega las tablas de la Fase 2 a bases creadas con la v1.
+- **Esquema local v3:** `schemaVersion = 3` con migraciones que agregan las tablas de las Fases 2 y 3 a bases anteriores.
+- **Gráficas propias:** el pastel y las líneas de Reportes se pintan con `CustomPainter` (`features/reports/presentation/charts.dart`), sin paquetes; cada una lleva una descripción para lectores de pantalla y su detalle en texto.
 - **Búsqueda y orden sin acentos:** SQLite compara ASCII sin distinguir mayúsculas; "cafe" no encuentra "Café" y las letras acentuadas ordenan al final. Pendiente una normalización.
 - **Web con base local:** `web/sqlite3.wasm` (sqlite3 3.7.1, de [sqlite3.dart](https://github.com/simolus3/sqlite3.dart/releases)) y `web/drift_worker.js` (drift 2.35.2, de [drift](https://github.com/simolus3/drift/releases)) deben coincidir con las versiones de `pubspec.lock`. Si se actualiza drift/sqlite3, hay que volver a descargarlos.
 - iOS: se agrega la plataforma cuando haya Mac/CI para compilarla.

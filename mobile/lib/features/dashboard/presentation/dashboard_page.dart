@@ -7,6 +7,7 @@ import '../../../core/db/queries.dart';
 import '../../../core/money/money.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/sync/sync_controller.dart';
+import '../../budgets/presentation/budget_alerts.dart';
 import '../../transactions/presentation/transaction_tile.dart';
 import 'upcoming_payments.dart';
 
@@ -86,6 +87,7 @@ class DashboardPage extends ConsumerWidget {
                 ),
               ),
             ],
+            const BudgetAlerts(),
             const SizedBox(height: 24),
             Row(children: [
               Expanded(child: Text('Últimas transacciones', style: theme.textTheme.titleMedium)),

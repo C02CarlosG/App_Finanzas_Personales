@@ -44,6 +44,7 @@ abstract final class AppRoutes {
   static const banks = '/bancos';
   static const categories = '/categorias';
   static const reports = '/reportes';
+  static const budgets = '/reportes?tab=presupuestos';
   static const profile = '/perfil';
 }
 
@@ -105,7 +106,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           StatefulShellBranch(routes: [GoRoute(path: AppRoutes.home, builder: (_, _) => const DashboardPage())]),
           StatefulShellBranch(routes: [GoRoute(path: AppRoutes.banks, builder: (_, _) => const AccountsPage())]),
           StatefulShellBranch(routes: [GoRoute(path: AppRoutes.categories, builder: (_, _) => const CategoriesPage())]),
-          StatefulShellBranch(routes: [GoRoute(path: AppRoutes.reports, builder: (_, _) => const ReportsPage())]),
+          StatefulShellBranch(routes: [
+            GoRoute(
+              path: AppRoutes.reports,
+              builder: (_, state) => ReportsPage(initialTab: state.uri.queryParameters['tab'] == 'presupuestos' ? 1 : 0),
+            ),
+          ]),
           StatefulShellBranch(routes: [GoRoute(path: AppRoutes.profile, builder: (_, _) => const ProfilePage())]),
         ],
       ),
