@@ -45,7 +45,14 @@ class CategoriesRepository {
     if (used.isNotEmpty) {
       throw const ValidationException('Esta categoría tiene movimientos. Cámbialos a otra categoría primero.');
     }
-    await _store.delete('categories', id);
+    // Un presupuesto de la categoría se va con ella (hijo primero: el servidor no borra una categoría con presupuesto).
+    final budgets = await (_db.select(_db.budgets)..where((b) => b.categoryId.equals(id) & b.deletedAt.isNull())).get();
+    await _db.transaction(() async {
+      for (final b in budgets) {
+        await _store.delete('budgets', b.id);
+      }
+      await _store.delete('categories', id);
+    });
   }
 
   Future<CategoryRow> _find(String id) async {

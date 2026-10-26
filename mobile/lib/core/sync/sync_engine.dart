@@ -157,6 +157,8 @@ class SyncEngine {
             } else {
               await _mergeDuplicateCategory(sent, result['conflicting_id'] as String);
             }
+          case 'duplicate_budget':
+            await _dropDuplicateBudget(sent); // otro dispositivo ya creó el de esa categoría: llegará en el pull
           default: // conflict u otro: se reintenta en el siguiente ciclo
             await _bumpAttempt(sent, code ?? status);
         }
@@ -213,6 +215,16 @@ class SyncEngine {
           await store.enqueue('transactions', tx.id, stamp, deleted: tx.deletedAt != null);
         }
         await _tables['categories']!.removeLocal(sent.recordId);
+        await _removeOutbox(sent.entity, sent.recordId);
+      });
+
+  /// `duplicate_budget`: el alta nunca llegó al servidor, que ya tiene el presupuesto de esa categoría. Se descarta
+  /// el local (el vigente llega en el pull de este mismo ciclo). Si el usuario lo editó con el lote en vuelo, no se
+  /// toca: esa edición es un cambio nuevo que volverá a recibir la misma respuesta y entonces se descartará.
+  Future<void> _dropDuplicateBudget(OutboxEntry sent) => db.transaction(() async {
+        final current = await _outbox(sent.entity, sent.recordId);
+        if (current != null && current.clientUpdatedAt.compareTo(sent.clientUpdatedAt) > 0) return;
+        await _tables['budgets']!.removeLocal(sent.recordId);
         await _removeOutbox(sent.entity, sent.recordId);
       });
 

@@ -44,6 +44,7 @@ Map<String, dynamic> pullPage({
   List<Map<String, dynamic>> subscriptions = const [],
   List<Map<String, dynamic>> creditCards = const [],
   List<Map<String, dynamic>> creditCardPayments = const [],
+  List<Map<String, dynamic>> budgets = const [],
   String next = 'cursor-1',
   bool hasMore = false,
 }) =>
@@ -58,6 +59,7 @@ Map<String, dynamic> pullPage({
         'subscriptions': subscriptions,
         'credit_cards': creditCards,
         'credit_card_payments': creditCardPayments,
+        'budgets': budgets,
       },
       'next_cursor': next,
       'has_more': hasMore,

@@ -153,6 +153,24 @@ class CreditCardPayments extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+// ---------- Fase 3 ----------
+
+/// Límite mensual de una categoría de gastos. El avance (gastado / límite) no se guarda: se deriva de las
+/// transacciones del mes, así dos dispositivos nunca divergen.
+@DataClassName('BudgetRow')
+class Budgets extends Table {
+  TextColumn get id => text()();
+  TextColumn get categoryId => text()();
+  IntColumn get monthlyLimitCents => integer()();
+  IntColumn get alertPercent => integer().withDefault(const Constant(80))(); // % del límite desde el que se avisa
+  TextColumn get updatedAt => text().nullable()();
+  TextColumn get clientUpdatedAt => text()();
+  TextColumn get deletedAt => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 /// Cambios locales pendientes de subir. Un renglón por registro con su estado
 /// más reciente (coalescencia); los datos se leen de la tabla de origen al enviar.
 @DataClassName('OutboxEntry')

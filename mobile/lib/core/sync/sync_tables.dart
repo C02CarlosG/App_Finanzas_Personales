@@ -362,6 +362,44 @@ class CreditCardPaymentsSync extends SyncTable {
   Future<void> removeLocal(String id) => (db.delete(db.creditCardPayments)..where((t) => t.id.equals(id))).go();
 }
 
+class BudgetsSync extends SyncTable {
+  const BudgetsSync(super.db);
+
+  @override
+  String get entity => 'budgets';
+
+  @override
+  Future<Map<String, dynamic>?> dataFor(String id) async {
+    final r = await (db.select(db.budgets)..where((t) => t.id.equals(id))).getSingleOrNull();
+    if (r == null) return null;
+    return {
+      'category_id': r.categoryId,
+      'monthly_limit': Money(r.monthlyLimitCents).toApiString(),
+      'alert_percent': r.alertPercent,
+    };
+  }
+
+  @override
+  Future<void> applyServerRecord(Map<String, dynamic> r) => db.into(db.budgets).insertOnConflictUpdate(
+        BudgetsCompanion(
+          id: Value(r['id'] as String),
+          categoryId: Value(r['category_id'] as String),
+          monthlyLimitCents: Value(Money.parse(r['monthly_limit'].toString()).cents),
+          alertPercent: Value(r['alert_percent'] as int),
+          updatedAt: Value(r['updated_at'] as String?),
+          clientUpdatedAt: Value(r['client_updated_at'] as String),
+          deletedAt: Value(r['deleted_at'] as String?),
+        ),
+      );
+
+  @override
+  Future<void> markSynced(String id, String updatedAt) =>
+      (db.update(db.budgets)..where((t) => t.id.equals(id))).write(BudgetsCompanion(updatedAt: Value(updatedAt)));
+
+  @override
+  Future<void> removeLocal(String id) => (db.delete(db.budgets)..where((t) => t.id.equals(id))).go();
+}
+
 /// Todas las tablas sincronizables, en el orden de [syncEntities].
 List<SyncTable> allSyncTables(AppDatabase db) => [
       CategoriesSync(db),
@@ -372,4 +410,5 @@ List<SyncTable> allSyncTables(AppDatabase db) => [
       SubscriptionsSync(db),
       LoanMovementsSync(db),
       CreditCardPaymentsSync(db),
+      BudgetsSync(db),
     ];

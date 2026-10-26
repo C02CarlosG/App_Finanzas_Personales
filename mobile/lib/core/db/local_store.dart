@@ -15,6 +15,7 @@ const syncEntities = [
   'subscriptions',
   'loan_movements',
   'credit_card_payments',
+  'budgets',
 ];
 
 /// Escrituras locales: cada cambio actualiza la tabla, sella `client_updated_at`
@@ -227,6 +228,27 @@ class LocalStore {
         clientUpdatedAt: Value(stamp),
       ));
       await enqueue('credit_cards', id, stamp);
+    });
+    _onChanged?.call();
+  }
+
+  Future<void> saveBudget({
+    required String id,
+    required String categoryId,
+    required Money monthlyLimit,
+    required int alertPercent,
+  }) async {
+    await _ensureClock();
+    await db.transaction(() async {
+      final stamp = clock.stamp();
+      await db.into(db.budgets).insertOnConflictUpdate(BudgetsCompanion(
+        id: Value(id),
+        categoryId: Value(categoryId),
+        monthlyLimitCents: Value(monthlyLimit.cents),
+        alertPercent: Value(alertPercent),
+        clientUpdatedAt: Value(stamp),
+      ));
+      await enqueue('budgets', id, stamp);
     });
     _onChanged?.call();
   }
