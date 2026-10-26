@@ -103,9 +103,13 @@ void main() {
     await tester.tap(find.byKey(const Key('todo-historial')));
     await tester.pumpAndSettle();
     expect(find.text('Todo el historial'), findsOneWidget);
-    for (final id in ['g1', 'g4', 'g5']) {
+    for (final id in ['g1', 'g4']) {
       expect(find.byKey(Key('movimiento-$id')), findsOneWidget, reason: id);
     }
+    // La lista es perezosa: el movimiento más antiguo se construye al desplazarse hasta él.
+    await tester.drag(find.byKey(const Key('movimiento-g4')), const Offset(0, -400));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('movimiento-g5')), findsOneWidget, reason: 'g5');
     expect(totalText(tester), r'$1,150.00'); // 1050 + 70 + 30
     expect(tester.widget<IconButton>(find.byKey(const Key('mes-anterior'))).onPressed, isNull); // sin navegar en "todo"
     await finishApp(tester);

@@ -42,6 +42,12 @@ final totalsProvider = StreamProvider.family<Totals, TransactionFilter>(
 
 // Fase 2
 
+/// "Hoy" para fechas límite y renovaciones; las pruebas lo sustituyen.
+final todayProvider = Provider<DateTime>((ref) {
+  final now = DateTime.now();
+  return DateTime(now.year, now.month, now.day);
+});
+
 final loansProvider = StreamProvider<List<LoanView>>(
   (ref) => ref.watch(databaseProvider)?.watchLoans() ?? const Stream.empty(),
 );
@@ -68,6 +74,11 @@ final creditCardsProvider = StreamProvider<List<CreditCardView>>(
 
 final cardPaymentsProvider = StreamProvider.family<List<CardPaymentView>, String>(
   (ref, cardId) => ref.watch(databaseProvider)?.watchCardPayments(cardId) ?? const Stream.empty(),
+);
+
+/// `loan` / `card` si el movimiento respalda un abono o un pago de tarjeta (no se edita desde Movimientos).
+final linkedKindProvider = FutureProvider.family<String?, String>(
+  (ref, transactionId) async => ref.watch(databaseProvider)?.linkedKindOfTransaction(transactionId),
 );
 
 final pendingCountProvider = StreamProvider<int>(

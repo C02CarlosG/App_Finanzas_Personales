@@ -48,6 +48,8 @@ Future<void> seedDemoData(AppDatabase db, {DateTime? now}) async {
   for (var i = 0; i < expenseNames.length; i++) {
     await addCategory('expense', expenseNames[i], colors[(i + 2) % colors.length]);
   }
+  await addCategory('expense', 'Pago de préstamo', '#6A1B9A', system: true);
+  await addCategory('expense', 'Pago de tarjeta', '#C62828', system: true);
 
   final accounts = {
     'nomina': (uuid.v4(), 'banco', bankIds['bbva'], 'Nómina BBVA', 'debito', 1200000),
@@ -90,4 +92,49 @@ Future<void> seedDemoData(AppDatabase db, {DateTime? now}) async {
     }
   }
   assert(n > 0);
+
+  // Fase 2: un préstamo que te deben (con un cobro ya registrado), una deuda, suscripciones y tarjetas.
+  String after(int days) => isoDate(DateTime(today.year, today.month, today.day + days));
+  Future<void> row<T extends Table, D>(TableInfo<T, D> table, Insertable<D> companion) => db.into(table).insert(companion);
+
+  final luis = uuid.v4();
+  await row(db.loans, LoansCompanion.insert(
+      id: luis, personName: 'Luis Pérez', direction: 'owed_to_me', principalCents: 300000, dueDate: Value(after(12)),
+      notes: const Value('Para la camioneta'), updatedAt: Value(stamp), clientUpdatedAt: stamp));
+  final cobroTx = uuid.v4();
+  await row(db.transactions, TransactionsCompanion.insert(
+      id: cobroTx, type: 'income', amountCents: 120000, accountId: accounts['efectivo']!.$1, categoryId: cat['Préstamo cobrado']!,
+      occurredOn: after(-5), counterparty: const Value('Luis Pérez'), updatedAt: Value(stamp), clientUpdatedAt: stamp));
+  await row(db.loanMovements, LoanMovementsCompanion.insert(
+      id: uuid.v4(), loanId: luis, kind: 'payment', amountCents: 120000, occurredOn: after(-5), transactionId: Value(cobroTx),
+      updatedAt: Value(stamp), clientUpdatedAt: stamp));
+  await row(db.loans, LoansCompanion.insert(
+      id: uuid.v4(), personName: 'Mamá', direction: 'i_owe', principalCents: 80000,
+      updatedAt: Value(stamp), clientUpdatedAt: stamp));
+
+  for (final (name, cents, period, nextIn, account) in [
+    ('Netflix', 19900, 'monthly', 3, 'credito'),
+    ('Spotify', 12900, 'monthly', 9, 'credito'),
+    ('Amazon Prime', 99900, 'yearly', 140, 'nomina'),
+    ('Gimnasio', 40000, 'monthly', 18, null),
+  ]) {
+    await row(db.subscriptions, SubscriptionsCompanion.insert(
+        id: uuid.v4(), name: name, amountCents: cents, renewalDate: after(nextIn), period: period,
+        accountId: Value(account == null ? null : accounts[account]!.$1), updatedAt: Value(stamp), clientUpdatedAt: stamp));
+  }
+
+  final azul = uuid.v4();
+  await row(db.creditCards, CreditCardsCompanion.insert(
+      id: azul, name: 'BBVA Azul', bankId: Value(bankIds['bbva']), pendingBalanceCents: const Value(485075),
+      dueDate: Value(after(6)), updatedAt: Value(stamp), clientUpdatedAt: stamp));
+  await row(db.creditCards, CreditCardsCompanion.insert(
+      id: uuid.v4(), name: 'Nu', bankId: Value(bankIds['nu']), pendingBalanceCents: const Value(120000),
+      dueDate: Value(after(21)), updatedAt: Value(stamp), clientUpdatedAt: stamp));
+  final pagoTx = uuid.v4();
+  await row(db.transactions, TransactionsCompanion.insert(
+      id: pagoTx, type: 'expense', amountCents: 150000, accountId: accounts['nomina']!.$1, categoryId: cat['Pago de tarjeta']!,
+      occurredOn: after(-14), description: const Value('Pago de tarjeta BBVA Azul'), updatedAt: Value(stamp), clientUpdatedAt: stamp));
+  await row(db.creditCardPayments, CreditCardPaymentsCompanion.insert(
+      id: uuid.v4(), creditCardId: azul, amountCents: 150000, paidOn: after(-14), accountId: Value(accounts['nomina']!.$1),
+      transactionId: Value(pagoTx), updatedAt: Value(stamp), clientUpdatedAt: stamp));
 }

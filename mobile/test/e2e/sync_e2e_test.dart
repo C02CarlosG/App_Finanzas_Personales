@@ -122,7 +122,7 @@ void main() {
     await a.sync();
     await b.sync();
 
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await Future<void>.delayed(const Duration(milliseconds: 250)); // holgura: cada dispositivo aprende su desfase de reloj con error de red
     await b.store.saveTransaction(
         id: tx, type: 'expense', amount: Money.parse('99.99'), accountId: acc, categoryId: cat, occurredOn: '2026-10-19', description: 'B');
     await b.sync();
@@ -151,7 +151,7 @@ void main() {
     // Ambos editan sin conexión; B edita después.
     await a.store.saveTransaction(
         id: tx, type: 'expense', amount: Money.parse('11'), accountId: acc, categoryId: cat, occurredOn: '2026-10-19', description: 'A');
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await Future<void>.delayed(const Duration(milliseconds: 250)); // holgura: cada dispositivo aprende su desfase de reloj con error de red
     await b.store.saveTransaction(
         id: tx, type: 'expense', amount: Money.parse('22'), accountId: acc, categoryId: cat, occurredOn: '2026-10-19', description: 'B');
 

@@ -7,11 +7,60 @@ import '../../../core/db/queries.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/sync/sync_controller.dart';
 import '../../../core/ui/fit_trailing.dart';
+import '../../loans/presentation/loans_tab.dart';
 import 'bank_avatar.dart';
 
-/// Bancos (spec 5.5): cuentas bancarias y de efectivo con su saldo actual.
-class AccountsPage extends ConsumerWidget {
+/// Bancos (spec 5.5): cuentas bancarias y de efectivo con su saldo actual; y, en la segunda pestaña,
+/// los préstamos (decisión del 2026-10-26: viven junto a los saldos).
+class AccountsPage extends StatefulWidget {
   const AccountsPage({super.key});
+
+  @override
+  State<AccountsPage> createState() => _AccountsPageState();
+}
+
+class _AccountsPageState extends State<AccountsPage> with SingleTickerProviderStateMixin {
+  late final TabController _tabs = TabController(length: 2, vsync: this);
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Bancos'),
+        bottom: TabBar(controller: _tabs, tabs: const [Tab(text: 'Cuentas'), Tab(text: 'Préstamos')]),
+      ),
+      // El botón cambia con la pestaña: agregar cuenta o agregar préstamo.
+      floatingActionButton: ListenableBuilder(
+        listenable: _tabs,
+        builder: (context, _) => _tabs.index == 0
+            ? FloatingActionButton.extended(
+                heroTag: null, // varias pantallas con FAB conviven (pestañas + rutas); sin etiqueta no chocan en la transición
+                key: const Key('agregar-cuenta'),
+                onPressed: () => context.push(AppRoutes.accountNew),
+                icon: const Icon(Icons.add),
+                label: const Text('Agregar'),
+              )
+            : FloatingActionButton.extended(
+                heroTag: null,
+                key: const Key('agregar-prestamo'),
+                onPressed: () => context.push(AppRoutes.loanNew),
+                icon: const Icon(Icons.add),
+                label: const Text('Agregar'),
+              ),
+      ),
+      body: TabBarView(controller: _tabs, children: const [_AccountsTab(), LoansTab()]),
+    );
+  }
+}
+
+class _AccountsTab extends ConsumerWidget {
+  const _AccountsTab();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -19,45 +68,35 @@ class AccountsPage extends ConsumerWidget {
     final total = ref.watch(totalBalanceProvider).value;
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Bancos')),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: null, // varias pantallas con FAB conviven (pestañas + rutas); sin etiqueta no chocan en la transición
-        key: const Key('agregar-cuenta'),
-        onPressed: () => context.push(AppRoutes.accountNew),
-        icon: const Icon(Icons.add),
-        label: const Text('Agregar'),
-      ),
-      body: accounts.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('No se pudieron cargar las cuentas: $e')),
-        data: (list) {
-          if (list.isEmpty) return const _EmptyState();
-          return RefreshIndicator(
-            onRefresh: () => ref.read(syncControllerProvider.notifier).syncNow(),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-              children: [
-                Card(
-                  color: theme.colorScheme.primaryContainer,
-                  child: ListTile(
-                    title: const Text('Saldo total'),
-                    trailing: FitTrailing(
-                      child: Text(
-                        total?.format() ?? '',
-                        key: const Key('bancos-saldo-total'),
-                        style: theme.textTheme.titleLarge,
-                      ),
+    return accounts.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('No se pudieron cargar las cuentas: $e')),
+      data: (list) {
+        if (list.isEmpty) return const _EmptyState();
+        return RefreshIndicator(
+          onRefresh: () => ref.read(syncControllerProvider.notifier).syncNow(),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+            children: [
+              Card(
+                color: theme.colorScheme.primaryContainer,
+                child: ListTile(
+                  title: const Text('Saldo total'),
+                  trailing: FitTrailing(
+                    child: Text(
+                      total?.format() ?? '',
+                      key: const Key('bancos-saldo-total'),
+                      style: theme.textTheme.titleLarge,
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
-                for (final a in list) _AccountTile(account: a),
-              ],
-            ),
-          );
-        },
-      ),
+              ),
+              const SizedBox(height: 8),
+              for (final a in list) _AccountTile(account: a),
+            ],
+          ),
+        );
+      },
     );
   }
 }

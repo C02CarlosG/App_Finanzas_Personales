@@ -97,10 +97,10 @@ class SubscriptionView {
 
   /// Costo mensual aproximado (semanal × 52 / 12, anual / 12), redondeado al centavo.
   Money get monthlyEquivalent => switch (period) {
-        'weekly' => Money((amount.cents * 52 / 12).round()),
-        'yearly' => Money((amount.cents / 12).round()),
-        _ => amount,
-      };
+    'weekly' => Money((amount.cents * 52 / 12).round()),
+    'yearly' => Money((amount.cents / 12).round()),
+    _ => amount,
+  };
 }
 
 class CreditCardView {
@@ -159,34 +159,38 @@ extension Fase2Queries on AppDatabase {
     WHERE l.deleted_at IS NULL''';
 
   LoanView _toLoanView(QueryRow r) => LoanView(
-        id: r.read<String>('id'),
-        personName: r.read<String>('person_name'),
-        direction: r.read<String>('direction'),
-        principal: Money(r.read<int>('principal_cents')),
-        increases: Money(r.read<int>('increases_cents')),
-        payments: Money(r.read<int>('payments_cents')),
-        status: r.read<String>('status'),
-        dueDate: r.readNullable<String>('due_date'),
-        notes: r.readNullable<String>('notes'),
-        pending: r.read<int>('pending') == 1,
-      );
+    id: r.read<String>('id'),
+    personName: r.read<String>('person_name'),
+    direction: r.read<String>('direction'),
+    principal: Money(r.read<int>('principal_cents')),
+    increases: Money(r.read<int>('increases_cents')),
+    payments: Money(r.read<int>('payments_cents')),
+    status: r.read<String>('status'),
+    dueDate: r.readNullable<String>('due_date'),
+    notes: r.readNullable<String>('notes'),
+    pending: r.read<int>('pending') == 1,
+  );
 
   /// Activos primero (los que vencen antes, arriba; sin plazo al final), luego los pagados.
   Stream<List<LoanView>> watchLoans() => customSelect(
-        '$_loanSelect ORDER BY (l.status = \'paid\'), (l.due_date IS NULL), l.due_date, lower(l.person_name)',
-        readsFrom: _loanTables,
-      ).watch().map((rows) => [for (final r in rows) _toLoanView(r)]);
+    '$_loanSelect ORDER BY (l.status = \'paid\'), (l.due_date IS NULL), l.due_date, lower(l.person_name)',
+    readsFrom: _loanTables,
+  ).watch().map((rows) => [for (final r in rows) _toLoanView(r)]);
 
-  Stream<LoanView?> watchLoan(String id) => customSelect(
-        '$_loanSelect AND l.id = ?',
-        variables: [Variable.withString(id)],
-        readsFrom: _loanTables,
-      ).watch().map((rows) => rows.isEmpty ? null : _toLoanView(rows.first));
+  Selectable<QueryRow> _loanById(String id) =>
+      customSelect('$_loanSelect AND l.id = ?', variables: [Variable.withString(id)], readsFrom: _loanTables);
 
-  Future<LoanView?> findLoan(String id) => watchLoan(id).first;
+  Stream<LoanView?> watchLoan(String id) => _loanById(id).watch().map((rows) => rows.isEmpty ? null : _toLoanView(rows.first));
+
+  /// Lectura única (sin flujo): la usan los repositorios dentro de sus transacciones.
+  Future<LoanView?> findLoan(String id) async {
+    final rows = await _loanById(id).get();
+    return rows.isEmpty ? null : _toLoanView(rows.first);
+  }
 
   /// Historial del préstamo, del más reciente al más viejo.
-  Stream<List<LoanMovementView>> watchLoanMovements(String loanId) => customSelect(
+  Stream<List<LoanMovementView>> watchLoanMovements(String loanId) =>
+      customSelect(
         '''
         SELECT m.id, m.loan_id, m.kind, m.amount_cents, m.occurred_on, m.transaction_id, a.name AS account_name,
                EXISTS(SELECT 1 FROM sync_outbox o WHERE o.entity = 'loan_movements' AND o.record_id = m.id) AS pending
@@ -197,88 +201,99 @@ extension Fase2Queries on AppDatabase {
         ORDER BY m.occurred_on DESC, m.client_updated_at DESC''',
         variables: [Variable.withString(loanId)],
         readsFrom: {loanMovements, transactions, accounts, syncOutbox},
-      ).watch().map((rows) => [
-            for (final r in rows)
-              LoanMovementView(
-                id: r.read<String>('id'),
-                loanId: r.read<String>('loan_id'),
-                kind: r.read<String>('kind'),
-                amount: Money(r.read<int>('amount_cents')),
-                occurredOn: r.read<String>('occurred_on'),
-                transactionId: r.readNullable<String>('transaction_id'),
-                accountName: r.readNullable<String>('account_name'),
-                pending: r.read<int>('pending') == 1,
-              ),
-          ]);
+      ).watch().map(
+        (rows) => [
+          for (final r in rows)
+            LoanMovementView(
+              id: r.read<String>('id'),
+              loanId: r.read<String>('loan_id'),
+              kind: r.read<String>('kind'),
+              amount: Money(r.read<int>('amount_cents')),
+              occurredOn: r.read<String>('occurred_on'),
+              transactionId: r.readNullable<String>('transaction_id'),
+              accountName: r.readNullable<String>('account_name'),
+              pending: r.read<int>('pending') == 1,
+            ),
+        ],
+      );
 
   /// Total pendiente de los préstamos activos, separado por sentido.
   Stream<LoansSummary> watchLoansSummary() => watchLoans().map((list) {
-        var owed = 0;
-        var owe = 0;
-        for (final l in list.where((l) => !l.isPaid)) {
-          if (l.iOwe) {
-            owe += l.remaining.cents;
-          } else {
-            owed += l.remaining.cents;
-          }
-        }
-        return LoansSummary(owedToMe: Money(owed), iOwe: Money(owe));
-      });
+    var owed = 0;
+    var owe = 0;
+    for (final l in list.where((l) => !l.isPaid)) {
+      if (l.iOwe) {
+        owe += l.remaining.cents;
+      } else {
+        owed += l.remaining.cents;
+      }
+    }
+    return LoansSummary(owedToMe: Money(owed), iOwe: Money(owe));
+  });
 
-  Stream<List<SubscriptionView>> watchSubscriptions() => customSelect(
-        '''
+  Selectable<QueryRow> get _subscriptionRows => customSelect(
+    '''
         SELECT s.id, s.name, s.amount_cents, s.renewal_date, s.period, s.active, s.account_id, a.name AS account_name,
                EXISTS(SELECT 1 FROM sync_outbox o WHERE o.entity = 'subscriptions' AND o.record_id = s.id) AS pending
         FROM subscriptions s
         LEFT JOIN accounts a ON a.id = s.account_id AND a.deleted_at IS NULL
         WHERE s.deleted_at IS NULL
         ORDER BY s.active DESC, lower(s.name)''',
-        readsFrom: {subscriptions, accounts, syncOutbox},
-      ).watch().map((rows) => [
-            for (final r in rows)
-              SubscriptionView(
-                id: r.read<String>('id'),
-                name: r.read<String>('name'),
-                amount: Money(r.read<int>('amount_cents')),
-                renewalDate: r.read<String>('renewal_date'),
-                period: r.read<String>('period'),
-                active: r.read<bool>('active'),
-                accountId: r.readNullable<String>('account_id'),
-                accountName: r.readNullable<String>('account_name'),
-                pending: r.read<int>('pending') == 1,
-              ),
-          ]);
+    readsFrom: {subscriptions, accounts, syncOutbox},
+  );
+
+  List<SubscriptionView> _toSubscriptionViews(List<QueryRow> rows) => [
+    for (final r in rows)
+      SubscriptionView(
+        id: r.read<String>('id'),
+        name: r.read<String>('name'),
+        amount: Money(r.read<int>('amount_cents')),
+        renewalDate: r.read<String>('renewal_date'),
+        period: r.read<String>('period'),
+        active: r.read<bool>('active'),
+        accountId: r.readNullable<String>('account_id'),
+        accountName: r.readNullable<String>('account_name'),
+        pending: r.read<int>('pending') == 1,
+      ),
+  ];
+
+  Stream<List<SubscriptionView>> watchSubscriptions() => _subscriptionRows.watch().map(_toSubscriptionViews);
 
   Future<SubscriptionView?> findSubscription(String id) async =>
-      (await watchSubscriptions().first).where((s) => s.id == id).firstOrNull;
+      _toSubscriptionViews(await _subscriptionRows.get()).where((s) => s.id == id).firstOrNull;
 
-  Stream<List<CreditCardView>> watchCreditCards() => customSelect(
-        '''
+  Selectable<QueryRow> get _creditCardRows => customSelect(
+    '''
         SELECT c.id, c.name, c.pending_balance_cents, c.due_date, c.bank_id, b.name AS bank_name, b.logo_key,
                EXISTS(SELECT 1 FROM sync_outbox o WHERE o.entity = 'credit_cards' AND o.record_id = c.id) AS pending
         FROM credit_cards c
         LEFT JOIN banks b ON b.id = c.bank_id
         WHERE c.deleted_at IS NULL
         ORDER BY (c.due_date IS NULL), c.due_date, lower(c.name)''',
-        readsFrom: {creditCards, banks, syncOutbox},
-      ).watch().map((rows) => [
-            for (final r in rows)
-              CreditCardView(
-                id: r.read<String>('id'),
-                name: r.read<String>('name'),
-                pendingBalance: Money(r.read<int>('pending_balance_cents')),
-                dueDate: r.readNullable<String>('due_date'),
-                bankId: r.readNullable<String>('bank_id'),
-                bankName: r.readNullable<String>('bank_name'),
-                logoKey: r.readNullable<String>('logo_key'),
-                pending: r.read<int>('pending') == 1,
-              ),
-          ]);
+    readsFrom: {creditCards, banks, syncOutbox},
+  );
+
+  List<CreditCardView> _toCreditCardViews(List<QueryRow> rows) => [
+    for (final r in rows)
+      CreditCardView(
+        id: r.read<String>('id'),
+        name: r.read<String>('name'),
+        pendingBalance: Money(r.read<int>('pending_balance_cents')),
+        dueDate: r.readNullable<String>('due_date'),
+        bankId: r.readNullable<String>('bank_id'),
+        bankName: r.readNullable<String>('bank_name'),
+        logoKey: r.readNullable<String>('logo_key'),
+        pending: r.read<int>('pending') == 1,
+      ),
+  ];
+
+  Stream<List<CreditCardView>> watchCreditCards() => _creditCardRows.watch().map(_toCreditCardViews);
 
   Future<CreditCardView?> findCreditCard(String id) async =>
-      (await watchCreditCards().first).where((c) => c.id == id).firstOrNull;
+      _toCreditCardViews(await _creditCardRows.get()).where((c) => c.id == id).firstOrNull;
 
-  Stream<List<CardPaymentView>> watchCardPayments(String cardId) => customSelect(
+  Stream<List<CardPaymentView>> watchCardPayments(String cardId) =>
+      customSelect(
         '''
         SELECT p.id, p.credit_card_id, p.amount_cents, p.paid_on, p.transaction_id, a.name AS account_name,
                EXISTS(SELECT 1 FROM sync_outbox o WHERE o.entity = 'credit_card_payments' AND o.record_id = p.id) AS pending
@@ -288,18 +303,20 @@ extension Fase2Queries on AppDatabase {
         ORDER BY p.paid_on DESC, p.client_updated_at DESC''',
         variables: [Variable.withString(cardId)],
         readsFrom: {creditCardPayments, accounts, syncOutbox},
-      ).watch().map((rows) => [
-            for (final r in rows)
-              CardPaymentView(
-                id: r.read<String>('id'),
-                creditCardId: r.read<String>('credit_card_id'),
-                amount: Money(r.read<int>('amount_cents')),
-                paidOn: r.read<String>('paid_on'),
-                transactionId: r.readNullable<String>('transaction_id'),
-                accountName: r.readNullable<String>('account_name'),
-                pending: r.read<int>('pending') == 1,
-              ),
-          ]);
+      ).watch().map(
+        (rows) => [
+          for (final r in rows)
+            CardPaymentView(
+              id: r.read<String>('id'),
+              creditCardId: r.read<String>('credit_card_id'),
+              amount: Money(r.read<int>('amount_cents')),
+              paidOn: r.read<String>('paid_on'),
+              transactionId: r.readNullable<String>('transaction_id'),
+              accountName: r.readNullable<String>('account_name'),
+              pending: r.read<int>('pending') == 1,
+            ),
+        ],
+      );
 
   /// `loan` / `card` si la transacción respalda un abono o un pago de tarjeta vivo (no se edita sola).
   Future<String?> linkedKindOfTransaction(String transactionId) async {

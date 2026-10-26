@@ -164,6 +164,10 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     if (mounted) context.pop();
   }
 
+  /// Con [lock], los campos no responden al toque (la lista sigue desplazándose).
+  List<Widget> _lockIf(bool lock, List<Widget> children) =>
+      lock ? [for (final w in children) w.key == const Key('movimiento-ligado') ? w : IgnorePointer(child: Opacity(opacity: 0.6, child: w))] : children;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -174,6 +178,8 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     final category = categories.where((c) => c.id == _categoryId).firstOrNull;
     final needsPerson = _type == 'income' && (category?.isSystem ?? false);
     final isIncome = _type == 'income';
+    // Un abono de préstamo o un pago de tarjeta se modifica desde su origen: aquí solo se consulta.
+    final linked = _editing ? ref.watch(linkedKindProvider(widget.transactionId!)).value : null;
 
     if (_loading) {
       return Scaffold(appBar: AppBar(title: const Text('Movimiento')), body: const Center(child: CircularProgressIndicator()));
@@ -183,7 +189,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
       appBar: AppBar(
         title: Text(_editing ? (isIncome ? 'Editar ingreso' : 'Editar gasto') : (isIncome ? 'Nuevo ingreso' : 'Nuevo gasto')),
         actions: [
-          if (_editing)
+          if (_editing && linked == null)
             IconButton(key: const Key('eliminar-movimiento'), tooltip: 'Eliminar', icon: const Icon(Icons.delete_outline), onPressed: _delete),
         ],
       ),
@@ -192,7 +198,24 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
           key: _formKey,
           child: ListView(
             padding: const EdgeInsets.all(16),
-            children: [
+            children: _lockIf(linked != null, [
+              if (linked != null)
+                Card(
+                  key: const Key('movimiento-ligado'),
+                  color: theme.colorScheme.secondaryContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Icon(Icons.link),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(linked == 'loan'
+                            ? 'Este movimiento viene de un abono de préstamo. Para modificarlo o deshacerlo, ve al préstamo.'
+                            : 'Este movimiento viene de un pago de tarjeta. Para modificarlo o deshacerlo, ve a la tarjeta.'),
+                      ),
+                    ]),
+                  ),
+                ),
               MoneyFormField(key: const Key('campo-monto'), controller: _amount, positiveOnly: true, autofocus: !_editing),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -247,12 +270,13 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                 Text(_error!, key: const Key('error-movimiento'), style: TextStyle(color: theme.colorScheme.error)),
               ],
               const SizedBox(height: 16),
-              FilledButton(
-                key: const Key('guardar-movimiento'),
-                onPressed: _busy ? null : () => _save(needsPerson: needsPerson),
-                child: const Text('Guardar'),
-              ),
-            ],
+              if (linked == null)
+                FilledButton(
+                  key: const Key('guardar-movimiento'),
+                  onPressed: _busy ? null : () => _save(needsPerson: needsPerson),
+                  child: const Text('Guardar'),
+                ),
+            ]),
           ),
         ),
       ),

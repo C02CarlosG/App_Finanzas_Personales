@@ -44,6 +44,7 @@ class SubscriptionsRepository {
     required String renewalDate,
     required String period,
     String? accountId,
+    bool? active,
   }) async {
     final row = await _find(id);
     await _store.saveSubscription(
@@ -54,7 +55,7 @@ class SubscriptionsRepository {
       period: _validPeriod(period),
       // Conservar la cuenta que ya tenía no exige que siga viva (el servidor tampoco lo pide si no cambia).
       accountId: accountId == row.accountId ? accountId : await _validAccount(accountId),
-      active: row.active,
+      active: active ?? row.active,
     );
   }
 
