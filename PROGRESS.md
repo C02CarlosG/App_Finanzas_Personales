@@ -1,9 +1,9 @@
 # PROGRESS
 
-_Última actualización: 2026-10-25 (Paso 4, correcciones de la revisión)_
+_Última actualización: 2026-10-26 (Paso 5)_
 
 ## Fase y paso actuales
-**Fase 1 – Paso 4 (Fase 1 en móvil) terminado y revisado; PR #3 (`paso-4-fase1-movil`) con las correcciones de la revisión, pendiente de CI verde para fusionar.** Los PR #1 (Paso 2) y #2 (Paso 3) ya están en `main`. Siguiente: Paso 5 (préstamos, suscripciones, tarjetas).
+**Fase 2 – Paso 5 (préstamos, suscripciones y tarjetas) implementado en la rama `paso-5-fase2` (backend + móvil), en revisión.** El PR #3 (Paso 4, con las correcciones de su revisión) ya está en `main`. Siguiente: Paso 6 (reportes, presupuestos, alertas).
 
 ## Qué está hecho
 - 2026-10-20 – Monorepo creado: `backend/`, `mobile/`, `docs/`, CI, `.gitignore`, `README.md`.
@@ -18,12 +18,14 @@ _Última actualización: 2026-10-25 (Paso 4, correcciones de la revisión)_
 - 2026-10-21 – PR #1 (sync) y #2 (app Flutter) **fusionados en `main`** con CI en verde.
 - 2026-10-21 – **Paso 4**: (4a) consultas reactivas, repositorios con reglas de negocio, `SyncController` (arranque, debounce, volver a la app, cada 5 min, retroceso), **401 → sesión expirada sin perder datos** y reingreso, banner y pantalla de problemas de sync; (4b) Bancos con selector visual y cuentas de banco/efectivo; (4c) Categorías; (4d) formulario de ingreso/gasto (con "crear banco" desde el formulario y persona en "Préstamo cobrado") e Inicio con datos reales; (4e) Movimientos con pestañas Ingresos|Gastos, mes, filtros categoría/cuenta y búsqueda; modo demo con base local y datos de ejemplo; web con base local (`sqlite3.wasm` + `drift_worker.js`). **153 pruebas Flutter** (7 e2e contra la API real) antes de la revisión. Las pruebas cazaron 3 defectos de interfaz (desplegable desbordado, cuenta preseleccionada que no se guardaba, orden de bancos sensible a mayúsculas).
 - 2026-10-25 – **Revisión adversarial del Paso 4** y correcciones (antes de fusionar). El hallazgo más grave: en compilaciones de **depuración** (`flutter run`) *toda escritura lanzaba `CircularDependencyError`* (`localStoreProvider` ↔ `syncControllerProvider`); las pruebas no lo veían porque sustituyen el controlador. Se reprodujo con una prueba de grafo real (`test/sync/real_graph_test.dart`) y se resolvió con `SyncSignal` (puente sin dependencias entre el almacén local y el sync). Además: bandera `_dirty` y contador de generación en `SyncController` (un cambio durante un ciclo ya no se pierde ni un ciclo viejo toca el estado de otro usuario); movimientos cuya cuenta/categoría ya es tombstone cuentan como huérfanos (los JOIN ignoran padres borrados); color de respaldo estable para categorías sin color y selector de color accesible (44×44 con etiquetas); cancelar "+ Crear cuenta" ya no deja esa opción seleccionada; lista de Movimientos perezosa (`SliverList.builder`); cerrar sesión pide confirmación y cuenta los cambios sin enviar (oculto en `DEMO_MODE`); accesibilidad con texto del sistema al 200 %: rejilla de bancos con altura según la escala, importes en `ListTile` con `FitTrailing` (antes `ListTile` fallaba con "Trailing widget consumes the entire tile width"), saldo grande con `FittedBox`, estado vacío de Bancos desplazable, y `heroTag: null` en los FAB (varias pestañas con FAB provocaban "multiple heroes" al abrir Movimientos). Cada arreglo se verificó desactivándolo y viendo fallar su prueba. **157 pruebas Flutter + 7 e2e** con la API real.
+- 2026-10-26 – **Paso 5a (backend)**: migración 003 (`client_updated_at`, triggers e índices de sync para `loans`, `loan_movements`, `subscriptions`, `credit_cards`, `credit_card_payments`; `transaction_id` en movimientos y pagos; categorías de sistema "Pago de préstamo" y "Pago de tarjeta", también para usuarios existentes); 5 entidades de sync con Zod estricto, referencias propias/vivas, coherencia de tipos (`type_mismatch`), campos inmutables y bloqueos de borrado (`in_use`); guards equivalentes en `DELETE /transactions` y `/accounts`. El campo `order` de las entidades ahora debe ser único (define el orden de bloqueo de filas). **76 pruebas** de backend (13 nuevas); cada regla verificada desactivándola.
+- 2026-10-26 – **Paso 5b (datos móviles)**: tablas drift y adaptadores de sync, `schemaVersion = 2` con migración, `LocalStore` generalizado, repositorios con las reglas de negocio (ver Decisiones) y consultas con totales derivados; 2 e2e con dos dispositivos contra la API real.
+- 2026-10-26 – **Paso 5c (pantallas)**: Bancos → Cuentas | Préstamos (resumen, formulario, detalle con historial, cobrar/pagar, aumentar, marcar pagado, deshacer); Gastos → Generales | Suscripciones | Tarjetas; "Suscripciones y pagos próximos" en Inicio; el movimiento de un abono/pago es de solo lectura en su formulario; datos demo con Fase 2. **220 pruebas Flutter** (9 e2e). Las pruebas cazaron: `ListTile` fallando con texto del sistema grande, hero tags de FAB repetidos y lecturas con flujos de drift que se colgaban dentro de transacciones en pruebas.
 
 ## Qué sigue (en orden)
-1. Fusionar el PR #3 cuando el CI quede en verde.
-2. Paso 5 – Fase 2: backend + móvil de préstamos, suscripciones y pagos de tarjeta (el esquema SQL ya existe; faltan `client_updated_at`, endpoints, entidades de sync y pantallas; Gastos suma sub-pestañas en Movimientos).
-3. Paso 6 – Fase 3 (reportes, presupuestos, alertas).
-4. Paso 7 – Fase 4 (exportación, perfil, sync robusto, suscripción de pago).
+1. Revisar y aprobar el PR del Paso 5.
+2. Paso 6 – Fase 3 (reportes, presupuestos, alertas).
+3. Paso 7 – Fase 4 (exportación, perfil, sync robusto, suscripción de pago).
 
 ## Decisiones tomadas y por qué
 - **Esquema**: `accounts` con `type` (`banco`/`efectivo`); `transactions` con `type` (`income`/`expense`); saldos por vista SQL `account_balances`; UUID + `updated_at` + `deleted_at` en todas las tablas; categorías por usuario sembradas al registrarse; catálogo de 16 bancos mexicanos sembrado.
@@ -36,11 +38,14 @@ _Última actualización: 2026-10-25 (Paso 4, correcciones de la revisión)_
 - **Sync, endurecimiento**: bloqueo previo de filas propias en orden fijo + reintento por deadlock; `FOR SHARE` en padres; segundo pase para `duplicate_name`/`invalid_reference`; presupuesto de tiempo por lote = 80 % del margen (si no, `503 batch_too_slow` y el cliente divide el lote). El cliente debe: un solo ciclo de sync a la vez, base local por usuario, lotes en orden padre→hijo, página de pull = una transacción local con su cursor, corregir su reloj con `server_time`.
 - **Móvil (Paso 3)**: Riverpod 3 (estado/DI), go_router, drift (SQLite), `http`, `flutter_secure_storage`, `uuid`. Dinero = `Money` (centavos enteros). Una base SQLite por usuario. Escrituras solo por `LocalStore` (sella `client_updated_at` y encola en la outbox en una transacción). `StampClock` garantiza sellos estrictamente crecientes. La sesión guardada se confía sin red; el primer login requiere internet. `DEMO_MODE` (solo desarrollo) salta el login para revisar pantallas. Android: `minSdk 24`, permiso INTERNET en release, HTTP en claro solo en debug. Código generado de drift (`*.g.dart`) no se versiona: se genera con `build_runner`.
 - **Móvil (Paso 4)**: listados en la pantalla **Movimientos** (Inicio → "Ver todos", pestañas Ingresos|Gastos; decisión tuya del 2026-10-21); filtro por **cuenta** (incluye efectivo) en lugar de solo banco; pestaña por defecto Gastos; sync sin `connectivity_plus` (reintento con retroceso); fechas y dinero sin `intl`; selector de fecha es-MX con `flutter_localizations` (SDK); `DEMO_MODE` siembra datos de ejemplo en la base local; logos de bancos: iniciales + color de marca, con `assets/banks/<logo_key>.png` opcional.
+- **Móvil/backend (Paso 5, decisiones tuyas del 2026-10-26)**: los **Préstamos** viven en una pestaña dentro de Bancos; los **abonos y pagos mueven el saldo** de la cuenta que elijas. Cobro a quien te debe = ingreso "Préstamo cobrado" + persona; abono a lo que debes y pago de tarjeta = gasto de sistema ("Pago de préstamo", "Pago de tarjeta"). *Aumentar monto* es el registro de un hecho ya ocurrido: **no** mueve saldos (si prefieres que sí, es un cambio acotado). Marcar como pagado con saldo pendiente registra un último abono en la cuenta elegida.
+- **Préstamo derivado**: `principal` es el monto original y el pendiente se calcula (`original + aumentos − abonos`) para que dos dispositivos converjan; las suscripciones no generan gastos solas (el spec solo pide el recordatorio); el saldo de tarjeta sí se guarda (lo captura el usuario) y cada pago lo reduce. Eliminar un préstamo/tarjeta conserva los ingresos/gastos ya registrados.
+- **Esquema local v2** con migración (ya no se edita la v1 en sitio).
 - **Pruebas**: BD aparte `*_test` obligatoria; el helper se niega a correr contra otra.
 
 ## Problemas abiertos / dudas para ti
 1. **Moneda**: el spec dice "cambiar moneda" y tú pides MXN. ¿Fija en MXN por ahora? (hoy `users.currency` existe con default `MXN` y el dashboard devuelve `MXN` fijo).
-2. **Préstamos en la navegación**: el spec no los ubica en la barra inferior (Inicio, Bancos, Categorías, Reportes, Perfil). ¿Dentro de Bancos, de Inicio o en otra parte?
+2. ~~Préstamos en la navegación~~ → decidido: pestaña dentro de Bancos.
 3. El backend original no se recuperó; esta versión es una reconstrucción con las decisiones que me diste. Si aparece el original, hay que compararlos.
 4. Sin límite de intentos de login ni recuperación de contraseña aún (a considerar en Fase 4).
 5. **Transacción huérfana** (solo si el padre ya llegó como tombstone; mientras esté pendiente, el cliente reintenta) (otro dispositivo borró la cuenta/categoría mientras este creaba una transacción offline): el servidor responde `invalid_reference`; la UX para reasignar o descartar se define en el Paso 4.
@@ -50,7 +55,9 @@ _Última actualización: 2026-10-25 (Paso 4, correcciones de la revisión)_
 7c. **Búsqueda y orden sin acentos** ("cafe" no halla "Café"): pendiente de normalización.
 7d. **Moneda**: sigue fija en MXN (tu decisión pendiente: ¿configurable más adelante?).
 8. **APK**: no se compila localmente (sin Android SDK en el entorno); lo compila el CI (`mobile-demo`, en verde). Es un APK de **depuración en modo demo**; un build de producción necesita firma (keystore) y decidir HTTPS/dominio de la API.
-8b. **Esquema local sin migraciones aún**: `schemaVersion = 1` y se modifica la tabla directamente mientras no haya usuarios reales. Antes del primer lanzamiento hay que congelar la versión y escribir migraciones.
+8b. **Esquema local**: `schemaVersion = 2` con migración v1→v2 (probada). Antes del primer lanzamiento hay que congelar la versión y mantener una migración por cambio.
+8c. **Saldo de tarjeta con dos dispositivos**: si pagan la misma tarjeta antes de sincronizar, LWW conserva uno de los descuentos (límite aceptado, `docs/sync.md` §7). Un saldo derivado de cargos requeriría registrar los cargos de la tarjeta (no está en el spec).
+8d. **Suscripciones**: solo recordatorio; no crean el gasto al renovarse. ¿Quieres un botón "Registrar cobro" que lo genere?
 9. LWW por registro pierde ediciones concurrentes de campos distintos (aceptado); si molesta, evaluar resolución por campo.
 
 ## Comandos
