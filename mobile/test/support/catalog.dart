@@ -10,6 +10,8 @@ class Catalog {
   static const comida = 'cat-comida';
   static const salario = 'cat-salario';
   static const prestamoCobrado = 'cat-prestamo';
+  static const pagoPrestamo = 'cat-pago-prestamo';
+  static const pagoTarjeta = 'cat-pago-tarjeta';
 }
 
 const _synced = '2026-10-01T00:00:00.000000Z';
@@ -33,6 +35,20 @@ Future<void> seedCatalog(AppDatabase db) async {
           kind: kind,
           name: name,
           isSystem: Value(system),
+          updatedAt: const Value(_synced),
+          clientUpdatedAt: _synced,
+        ));
+  }
+}
+
+/// Las dos categorías de gasto de sistema de la Fase 2 (las siembra el servidor; llegan por pull).
+Future<void> seedPhase2Categories(AppDatabase db) async {
+  for (final (id, name) in [(Catalog.pagoPrestamo, 'Pago de préstamo'), (Catalog.pagoTarjeta, 'Pago de tarjeta')]) {
+    await db.into(db.categories).insert(CategoriesCompanion.insert(
+          id: id,
+          kind: 'expense',
+          name: name,
+          isSystem: const Value(true),
           updatedAt: const Value(_synced),
           clientUpdatedAt: _synced,
         ));

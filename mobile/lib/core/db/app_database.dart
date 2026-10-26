@@ -5,7 +5,19 @@ import 'tables.dart';
 
 part 'app_database.g.dart';
 
-@DriftDatabase(tables: [Banks, Categories, Accounts, Transactions, SyncOutbox, SyncState])
+@DriftDatabase(tables: [
+  Banks,
+  Categories,
+  Accounts,
+  Transactions,
+  Loans,
+  LoanMovements,
+  Subscriptions,
+  CreditCards,
+  CreditCardPayments,
+  SyncOutbox,
+  SyncState,
+])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
@@ -21,8 +33,24 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
+  /// 2 = Fase 2 (préstamos, suscripciones, tarjetas). Una base creada con la versión 1 recibe las
+  /// tablas nuevas; el cursor del pull no cambia: el servidor completa con cero las tablas que le faltan.
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.createTable(loans);
+            await m.createTable(loanMovements);
+            await m.createTable(subscriptions);
+            await m.createTable(creditCards);
+            await m.createTable(creditCardPayments);
+          }
+        },
+      );
 
   Future<String?> readState(String key) async {
     final row = await (select(syncState)..where((t) => t.key.equals(key))).getSingleOrNull();

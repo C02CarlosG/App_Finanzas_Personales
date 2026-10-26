@@ -66,11 +66,98 @@ class Transactions extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+// ---------- Fase 2 ----------
+
+/// Préstamo o deuda. `principalCents` es el monto **original**: el pendiente se deriva de los
+/// movimientos (`principal + aumentos − abonos`), así dos dispositivos convergen (docs/sync.md §2).
+@DataClassName('LoanRow')
+class Loans extends Table {
+  TextColumn get id => text()();
+  TextColumn get personName => text()();
+  TextColumn get direction => text()(); // i_owe (le debo) | owed_to_me (me debe)
+  IntColumn get principalCents => integer()();
+  TextColumn get dueDate => text().nullable()(); // YYYY-MM-DD, plazo opcional
+  TextColumn get status => text().withDefault(const Constant('active'))(); // active | paid
+  TextColumn get notes => text().nullable()();
+  TextColumn get updatedAt => text().nullable()();
+  TextColumn get clientUpdatedAt => text()();
+  TextColumn get deletedAt => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+/// Abono (`payment`) o aumento (`increase`) de un préstamo. Un abono lleva su ingreso/gasto en
+/// `transactionId`; un movimiento no se edita: se elimina y se vuelve a crear.
+@DataClassName('LoanMovementRow')
+class LoanMovements extends Table {
+  TextColumn get id => text()();
+  TextColumn get loanId => text()();
+  TextColumn get kind => text()(); // payment | increase
+  IntColumn get amountCents => integer()();
+  TextColumn get occurredOn => text()();
+  TextColumn get transactionId => text().nullable()();
+  TextColumn get updatedAt => text().nullable()();
+  TextColumn get clientUpdatedAt => text()();
+  TextColumn get deletedAt => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('SubscriptionRow')
+class Subscriptions extends Table {
+  TextColumn get id => text()();
+  TextColumn get name => text()();
+  IntColumn get amountCents => integer()();
+  TextColumn get renewalDate => text()(); // YYYY-MM-DD: una renovación conocida; las siguientes se derivan
+  TextColumn get period => text()(); // weekly | monthly | yearly
+  TextColumn get accountId => text().nullable()();
+  BoolColumn get active => boolean().withDefault(const Constant(true))();
+  TextColumn get updatedAt => text().nullable()();
+  TextColumn get clientUpdatedAt => text()();
+  TextColumn get deletedAt => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('CreditCardRow')
+class CreditCards extends Table {
+  TextColumn get id => text()();
+  TextColumn get bankId => text().nullable()();
+  TextColumn get name => text()();
+  IntColumn get pendingBalanceCents => integer().withDefault(const Constant(0))();
+  TextColumn get dueDate => text().nullable()();
+  TextColumn get updatedAt => text().nullable()();
+  TextColumn get clientUpdatedAt => text()();
+  TextColumn get deletedAt => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('CreditCardPaymentRow')
+class CreditCardPayments extends Table {
+  TextColumn get id => text()();
+  TextColumn get creditCardId => text()();
+  TextColumn get accountId => text().nullable()();
+  TextColumn get transactionId => text().nullable()();
+  IntColumn get amountCents => integer()();
+  TextColumn get paidOn => text()();
+  TextColumn get updatedAt => text().nullable()();
+  TextColumn get clientUpdatedAt => text()();
+  TextColumn get deletedAt => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 /// Cambios locales pendientes de subir. Un renglón por registro con su estado
 /// más reciente (coalescencia); los datos se leen de la tabla de origen al enviar.
 @DataClassName('OutboxEntry')
 class SyncOutbox extends Table {
-  TextColumn get entity => text()(); // categories | accounts | transactions
+  TextColumn get entity => text()(); // ver syncEntities en local_store.dart
   TextColumn get recordId => text()();
   TextColumn get clientUpdatedAt => text()();
   BoolColumn get deleted => boolean().withDefault(const Constant(false))();

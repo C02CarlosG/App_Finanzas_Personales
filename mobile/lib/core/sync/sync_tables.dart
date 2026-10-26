@@ -147,3 +147,229 @@ class TransactionsSync extends SyncTable {
   @override
   Future<void> removeLocal(String id) => (db.delete(db.transactions)..where((t) => t.id.equals(id))).go();
 }
+
+// ---------- Fase 2 ----------
+
+class LoansSync extends SyncTable {
+  const LoansSync(super.db);
+
+  @override
+  String get entity => 'loans';
+
+  @override
+  Future<Map<String, dynamic>?> dataFor(String id) async {
+    final r = await (db.select(db.loans)..where((t) => t.id.equals(id))).getSingleOrNull();
+    if (r == null) return null;
+    return {
+      'person_name': r.personName,
+      'direction': r.direction,
+      'principal': Money(r.principalCents).toApiString(),
+      'due_date': r.dueDate,
+      'status': r.status,
+      'notes': r.notes,
+    };
+  }
+
+  @override
+  Future<void> applyServerRecord(Map<String, dynamic> r) => db.into(db.loans).insertOnConflictUpdate(
+        LoansCompanion(
+          id: Value(r['id'] as String),
+          personName: Value(r['person_name'] as String),
+          direction: Value(r['direction'] as String),
+          principalCents: Value(Money.parse(r['principal'].toString()).cents),
+          dueDate: Value(r['due_date'] as String?),
+          status: Value(r['status'] as String),
+          notes: Value(r['notes'] as String?),
+          updatedAt: Value(r['updated_at'] as String?),
+          clientUpdatedAt: Value(r['client_updated_at'] as String),
+          deletedAt: Value(r['deleted_at'] as String?),
+        ),
+      );
+
+  @override
+  Future<void> markSynced(String id, String updatedAt) =>
+      (db.update(db.loans)..where((t) => t.id.equals(id))).write(LoansCompanion(updatedAt: Value(updatedAt)));
+
+  @override
+  Future<void> removeLocal(String id) => (db.delete(db.loans)..where((t) => t.id.equals(id))).go();
+}
+
+class LoanMovementsSync extends SyncTable {
+  const LoanMovementsSync(super.db);
+
+  @override
+  String get entity => 'loan_movements';
+
+  @override
+  Future<Map<String, dynamic>?> dataFor(String id) async {
+    final r = await (db.select(db.loanMovements)..where((t) => t.id.equals(id))).getSingleOrNull();
+    if (r == null) return null;
+    return {
+      'loan_id': r.loanId,
+      'kind': r.kind,
+      'amount': Money(r.amountCents).toApiString(),
+      'occurred_on': r.occurredOn,
+      'transaction_id': r.transactionId,
+    };
+  }
+
+  @override
+  Future<void> applyServerRecord(Map<String, dynamic> r) => db.into(db.loanMovements).insertOnConflictUpdate(
+        LoanMovementsCompanion(
+          id: Value(r['id'] as String),
+          loanId: Value(r['loan_id'] as String),
+          kind: Value(r['kind'] as String),
+          amountCents: Value(Money.parse(r['amount'].toString()).cents),
+          occurredOn: Value(r['occurred_on'] as String),
+          transactionId: Value(r['transaction_id'] as String?),
+          updatedAt: Value(r['updated_at'] as String?),
+          clientUpdatedAt: Value(r['client_updated_at'] as String),
+          deletedAt: Value(r['deleted_at'] as String?),
+        ),
+      );
+
+  @override
+  Future<void> markSynced(String id, String updatedAt) =>
+      (db.update(db.loanMovements)..where((t) => t.id.equals(id))).write(LoanMovementsCompanion(updatedAt: Value(updatedAt)));
+
+  @override
+  Future<void> removeLocal(String id) => (db.delete(db.loanMovements)..where((t) => t.id.equals(id))).go();
+}
+
+class SubscriptionsSync extends SyncTable {
+  const SubscriptionsSync(super.db);
+
+  @override
+  String get entity => 'subscriptions';
+
+  @override
+  Future<Map<String, dynamic>?> dataFor(String id) async {
+    final r = await (db.select(db.subscriptions)..where((t) => t.id.equals(id))).getSingleOrNull();
+    if (r == null) return null;
+    return {
+      'name': r.name,
+      'amount': Money(r.amountCents).toApiString(),
+      'renewal_date': r.renewalDate,
+      'period': r.period,
+      'account_id': r.accountId,
+      'active': r.active,
+    };
+  }
+
+  @override
+  Future<void> applyServerRecord(Map<String, dynamic> r) => db.into(db.subscriptions).insertOnConflictUpdate(
+        SubscriptionsCompanion(
+          id: Value(r['id'] as String),
+          name: Value(r['name'] as String),
+          amountCents: Value(Money.parse(r['amount'].toString()).cents),
+          renewalDate: Value(r['renewal_date'] as String),
+          period: Value(r['period'] as String),
+          accountId: Value(r['account_id'] as String?),
+          active: Value(r['active'] as bool),
+          updatedAt: Value(r['updated_at'] as String?),
+          clientUpdatedAt: Value(r['client_updated_at'] as String),
+          deletedAt: Value(r['deleted_at'] as String?),
+        ),
+      );
+
+  @override
+  Future<void> markSynced(String id, String updatedAt) =>
+      (db.update(db.subscriptions)..where((t) => t.id.equals(id))).write(SubscriptionsCompanion(updatedAt: Value(updatedAt)));
+
+  @override
+  Future<void> removeLocal(String id) => (db.delete(db.subscriptions)..where((t) => t.id.equals(id))).go();
+}
+
+class CreditCardsSync extends SyncTable {
+  const CreditCardsSync(super.db);
+
+  @override
+  String get entity => 'credit_cards';
+
+  @override
+  Future<Map<String, dynamic>?> dataFor(String id) async {
+    final r = await (db.select(db.creditCards)..where((t) => t.id.equals(id))).getSingleOrNull();
+    if (r == null) return null;
+    return {
+      'bank_id': r.bankId,
+      'name': r.name,
+      'pending_balance': Money(r.pendingBalanceCents).toApiString(),
+      'due_date': r.dueDate,
+    };
+  }
+
+  @override
+  Future<void> applyServerRecord(Map<String, dynamic> r) => db.into(db.creditCards).insertOnConflictUpdate(
+        CreditCardsCompanion(
+          id: Value(r['id'] as String),
+          bankId: Value(r['bank_id'] as String?),
+          name: Value(r['name'] as String),
+          pendingBalanceCents: Value(Money.parse(r['pending_balance'].toString()).cents),
+          dueDate: Value(r['due_date'] as String?),
+          updatedAt: Value(r['updated_at'] as String?),
+          clientUpdatedAt: Value(r['client_updated_at'] as String),
+          deletedAt: Value(r['deleted_at'] as String?),
+        ),
+      );
+
+  @override
+  Future<void> markSynced(String id, String updatedAt) =>
+      (db.update(db.creditCards)..where((t) => t.id.equals(id))).write(CreditCardsCompanion(updatedAt: Value(updatedAt)));
+
+  @override
+  Future<void> removeLocal(String id) => (db.delete(db.creditCards)..where((t) => t.id.equals(id))).go();
+}
+
+class CreditCardPaymentsSync extends SyncTable {
+  const CreditCardPaymentsSync(super.db);
+
+  @override
+  String get entity => 'credit_card_payments';
+
+  @override
+  Future<Map<String, dynamic>?> dataFor(String id) async {
+    final r = await (db.select(db.creditCardPayments)..where((t) => t.id.equals(id))).getSingleOrNull();
+    if (r == null) return null;
+    return {
+      'credit_card_id': r.creditCardId,
+      'account_id': r.accountId,
+      'transaction_id': r.transactionId,
+      'amount': Money(r.amountCents).toApiString(),
+      'paid_on': r.paidOn,
+    };
+  }
+
+  @override
+  Future<void> applyServerRecord(Map<String, dynamic> r) => db.into(db.creditCardPayments).insertOnConflictUpdate(
+        CreditCardPaymentsCompanion(
+          id: Value(r['id'] as String),
+          creditCardId: Value(r['credit_card_id'] as String),
+          accountId: Value(r['account_id'] as String?),
+          transactionId: Value(r['transaction_id'] as String?),
+          amountCents: Value(Money.parse(r['amount'].toString()).cents),
+          paidOn: Value(r['paid_on'] as String),
+          updatedAt: Value(r['updated_at'] as String?),
+          clientUpdatedAt: Value(r['client_updated_at'] as String),
+          deletedAt: Value(r['deleted_at'] as String?),
+        ),
+      );
+
+  @override
+  Future<void> markSynced(String id, String updatedAt) => (db.update(db.creditCardPayments)..where((t) => t.id.equals(id)))
+      .write(CreditCardPaymentsCompanion(updatedAt: Value(updatedAt)));
+
+  @override
+  Future<void> removeLocal(String id) => (db.delete(db.creditCardPayments)..where((t) => t.id.equals(id))).go();
+}
+
+/// Todas las tablas sincronizables, en el orden de [syncEntities].
+List<SyncTable> allSyncTables(AppDatabase db) => [
+      CategoriesSync(db),
+      AccountsSync(db),
+      LoansSync(db),
+      CreditCardsSync(db),
+      TransactionsSync(db),
+      SubscriptionsSync(db),
+      LoanMovementsSync(db),
+      CreditCardPaymentsSync(db),
+    ];

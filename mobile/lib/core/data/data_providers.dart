@@ -1,11 +1,15 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/accounts/data/accounts_repository.dart';
+import '../../features/cards/data/credit_cards_repository.dart';
 import '../../features/categories/data/categories_repository.dart';
+import '../../features/loans/data/loans_repository.dart';
+import '../../features/subscriptions/data/subscriptions_repository.dart';
 import '../../features/transactions/data/transactions_repository.dart';
 import '../db/app_database.dart';
 import '../db/local_store.dart';
 import '../db/queries.dart';
+import '../db/queries_fase2.dart';
 import '../money/money.dart';
 import '../providers.dart';
 
@@ -36,6 +40,36 @@ final totalsProvider = StreamProvider.family<Totals, TransactionFilter>(
   (ref, filter) => ref.watch(databaseProvider)?.watchTotals(filter) ?? const Stream.empty(),
 );
 
+// Fase 2
+
+final loansProvider = StreamProvider<List<LoanView>>(
+  (ref) => ref.watch(databaseProvider)?.watchLoans() ?? const Stream.empty(),
+);
+
+final loanProvider = StreamProvider.family<LoanView?, String>(
+  (ref, id) => ref.watch(databaseProvider)?.watchLoan(id) ?? const Stream.empty(),
+);
+
+final loanMovementsProvider = StreamProvider.family<List<LoanMovementView>, String>(
+  (ref, loanId) => ref.watch(databaseProvider)?.watchLoanMovements(loanId) ?? const Stream.empty(),
+);
+
+final loansSummaryProvider = StreamProvider<LoansSummary>(
+  (ref) => ref.watch(databaseProvider)?.watchLoansSummary() ?? const Stream.empty(),
+);
+
+final subscriptionsProvider = StreamProvider<List<SubscriptionView>>(
+  (ref) => ref.watch(databaseProvider)?.watchSubscriptions() ?? const Stream.empty(),
+);
+
+final creditCardsProvider = StreamProvider<List<CreditCardView>>(
+  (ref) => ref.watch(databaseProvider)?.watchCreditCards() ?? const Stream.empty(),
+);
+
+final cardPaymentsProvider = StreamProvider.family<List<CardPaymentView>, String>(
+  (ref, cardId) => ref.watch(databaseProvider)?.watchCardPayments(cardId) ?? const Stream.empty(),
+);
+
 final pendingCountProvider = StreamProvider<int>(
   (ref) => ref.watch(databaseProvider)?.watchPendingCount() ?? const Stream.empty(),
 );
@@ -56,6 +90,18 @@ final categoriesRepositoryProvider = Provider<CategoriesRepository>(
 
 final transactionsRepositoryProvider = Provider<TransactionsRepository>(
   (ref) => TransactionsRepository(_store(ref)),
+);
+
+final loansRepositoryProvider = Provider<LoansRepository>(
+  (ref) => LoansRepository(_store(ref)),
+);
+
+final subscriptionsRepositoryProvider = Provider<SubscriptionsRepository>(
+  (ref) => SubscriptionsRepository(_store(ref)),
+);
+
+final creditCardsRepositoryProvider = Provider<CreditCardsRepository>(
+  (ref) => CreditCardsRepository(_store(ref)),
 );
 
 LocalStore _store(Ref ref) {

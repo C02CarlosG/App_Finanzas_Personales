@@ -41,3 +41,50 @@ String monthLabel(int year, int month) => '${_monthsLong[month - 1]} $year';
 
 ({int year, int month}) nextMonth(int year, int month) =>
     month == 12 ? (year: year + 1, month: 1) : (year: year, month: month + 1);
+
+/// Días del mes (febrero con año bisiesto).
+int daysInMonth(int year, int month) => DateTime(year, month + 1, 0).day;
+
+/// Suma [months] meses conservando el día; si el mes destino es más corto, usa su último día
+/// (31 ene + 1 mes = 28/29 feb).
+DateTime addMonths(DateTime d, int months) {
+  final total = d.year * 12 + (d.month - 1) + months;
+  final year = total ~/ 12;
+  final month = total % 12 + 1;
+  final day = d.day > daysInMonth(year, month) ? daysInMonth(year, month) : d.day;
+  return DateTime(year, month, day);
+}
+
+/// Próxima renovación en o después de [today], a partir de una renovación conocida [renewalIso] y su
+/// periodicidad (`weekly` | `monthly` | `yearly`). Siempre se cuenta desde la fecha original: un cobro del
+/// día 31 vuelve al 31 en los meses que lo tienen aunque febrero lo haya acortado.
+DateTime nextRenewal(String renewalIso, String period, DateTime today) {
+  final base = parseIsoDate(renewalIso);
+  final start = DateTime(today.year, today.month, today.day);
+  if (!base.isBefore(start)) return base;
+  switch (period) {
+    case 'weekly':
+      final weeks = (daysBetween(base, start) + 6) ~/ 7; // redondeo hacia arriba, en días civiles (sin horario de verano)
+      return DateTime(base.year, base.month, base.day + weeks * 7);
+    case 'yearly':
+      var years = start.year - base.year;
+      var candidate = addMonths(base, years * 12);
+      if (candidate.isBefore(start)) {
+        years += 1;
+        candidate = addMonths(base, years * 12);
+      }
+      return candidate;
+    default: // monthly
+      var months = (start.year - base.year) * 12 + (start.month - base.month);
+      var candidate = addMonths(base, months);
+      if (candidate.isBefore(start)) {
+        months += 1;
+        candidate = addMonths(base, months);
+      }
+      return candidate;
+  }
+}
+
+/// Días desde [from] hasta [to] contando días civiles (no horas).
+int daysBetween(DateTime from, DateTime to) =>
+    DateTime.utc(to.year, to.month, to.day).difference(DateTime.utc(from.year, from.month, from.day)).inDays;

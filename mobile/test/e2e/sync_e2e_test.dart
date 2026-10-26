@@ -9,6 +9,8 @@ import 'package:drift/drift.dart' show BooleanExpressionOperators, driftRuntimeO
 import 'package:drift/native.dart';
 import 'package:finanzas_personales/core/db/app_database.dart';
 import 'package:finanzas_personales/core/db/local_store.dart';
+import 'package:finanzas_personales/core/db/queries.dart';
+import 'package:finanzas_personales/core/db/queries_fase2.dart';
 import 'package:finanzas_personales/core/money/money.dart';
 import 'package:finanzas_personales/core/network/api_client.dart';
 import 'package:finanzas_personales/core/sync/stamp.dart';
@@ -16,6 +18,9 @@ import 'package:finanzas_personales/core/sync/sync_api.dart';
 import 'package:finanzas_personales/core/sync/sync_engine.dart';
 import 'package:finanzas_personales/features/accounts/data/accounts_repository.dart';
 import 'package:finanzas_personales/features/auth/data/auth_repository.dart';
+import 'package:finanzas_personales/features/cards/data/credit_cards_repository.dart';
+import 'package:finanzas_personales/features/loans/data/loans_repository.dart';
+import 'package:finanzas_personales/features/subscriptions/data/subscriptions_repository.dart';
 import 'package:finanzas_personales/features/categories/data/categories_repository.dart';
 import 'package:finanzas_personales/features/transactions/data/transactions_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -232,5 +237,70 @@ void main() {
     await b.sync();
     expect((await b.tx(t1)).amountCents, 30015); // y el otro dispositivo lo recibe
     expect((await b.db.select(b.db.categories).get()).any((c) => c.id == cat && c.color == '#C62828'), isTrue);
+  });
+
+  test('Fase 2: préstamos, tarjetas y suscripciones de la app los acepta el backend y el otro dispositivo converge', () async {
+    await a.sync();
+    final accounts = AccountsRepository(a.store);
+    final loans = LoansRepository(a.store);
+    final cards = CreditCardsRepository(a.store);
+    final subs = SubscriptionsRepository(a.store);
+
+    final acc = await accounts.createCashAccount(name: 'Cartera', initialBalance: Money.parse('1000'));
+    final owedToMe = await loans.create(personName: 'Luis Pérez', direction: 'owed_to_me', principal: Money.parse('500'), dueDate: '2026-12-31');
+    final iOwe = await loans.create(personName: 'Mamá', direction: 'i_owe', principal: Money.parse('300'));
+    await loans.addIncrease(owedToMe, amount: Money.parse('100'));
+    await loans.addPayment(owedToMe, amount: Money.parse('250.50'), accountId: acc, occurredOn: '2026-10-19'); // cobro: +250.50
+    await loans.addPayment(iOwe, amount: Money.parse('100'), accountId: acc, occurredOn: '2026-10-19'); // pago: −100
+    final card = await cards.create(name: 'BBVA Azul', pendingBalance: Money.parse('2000'), dueDate: '2026-11-10');
+    await cards.addPayment(card, amount: Money.parse('500'), accountId: acc, paidOn: '2026-10-19'); // −500
+    final sub = await subs.create(name: 'Netflix', amount: Money.parse('199'), renewalDate: '2026-11-01', accountId: acc);
+    await a.sync();
+
+    expect(await a.db.select(a.db.syncOutbox).get(), isEmpty, reason: 'el servidor aceptó todo');
+    expect((await a.api.get('/accounts/$acc'))['balance'], '650.50'); // 1000 + 250.50 − 100 − 500
+
+    await b.sync();
+    final l = (await b.db.findLoan(owedToMe))!;
+    expect([l.total.cents, l.payments.cents, l.remaining.cents, l.dueDate], [60000, 25050, 34950, '2026-12-31']);
+    expect((await b.db.findLoan(iOwe))!.remaining.cents, 20000);
+    expect((await b.db.findCreditCard(card))!.pendingBalance.cents, 150000);
+    expect((await b.db.watchCardPayments(card).first).single.amount.cents, 50000);
+    expect((await b.db.findSubscription(sub))!.accountName, 'Cartera');
+    expect((await b.db.watchAccounts().first).firstWhere((x) => x.id == acc).balance.cents, 65050);
+
+    // B deshace el cobro: el movimiento y su ingreso desaparecen en A y el saldo vuelve a cuadrar.
+    final movement = (await b.db.watchLoanMovements(owedToMe).first).firstWhere((m) => m.isPayment);
+    await LoansRepository(b.store).deleteMovement(movement.id);
+    await b.sync();
+    expect(await b.db.select(b.db.syncOutbox).get(), isEmpty, reason: 'borrar movimiento y transacción en orden hijo→padre');
+    await a.sync();
+    expect((await a.db.findLoan(owedToMe))!.remaining.cents, 60000);
+    expect((await a.db.watchAccounts().first).firstWhere((x) => x.id == acc).balance.cents, 40000); // 650.50 − 250.50
+    expect((await a.api.get('/accounts/$acc'))['balance'], '400.00');
+
+    // Eliminar el préstamo conserva el gasto del pago; la tarjeta con pagos tampoco arrastra transacciones.
+    await LoansRepository(a.store).delete(iOwe);
+    await CreditCardsRepository(a.store).delete(card);
+    await a.sync();
+    expect(await a.db.select(a.db.syncOutbox).get(), isEmpty);
+    expect((await a.api.get('/accounts/$acc'))['balance'], '400.00');
+    await b.sync();
+    expect(await b.db.findLoan(iOwe), isNull);
+    expect(await b.db.findCreditCard(card), isNull);
+  });
+
+  test('Fase 2: una cuenta usada por una suscripción en otro dispositivo no se pierde al borrarla', () async {
+    await a.sync();
+    final acc = await AccountsRepository(a.store).createCashAccount(name: 'Vacía');
+    await a.sync();
+    await b.sync();
+    await SubscriptionsRepository(b.store).create(name: 'Spotify', amount: Money.parse('129'), renewalDate: '2026-11-01', accountId: acc);
+    await b.sync(); // B usa la cuenta
+    await a.store.delete('accounts', acc); // A, sin saberlo, la borra (saltándose la regla local a propósito)
+    await a.sync();
+    final row = await (a.db.select(a.db.accounts)..where((t) => t.id.equals(acc))).getSingle();
+    expect(row.deletedAt, isNull); // el servidor respondió in_use y la cuenta resucitó
+    expect((await a.db.findSubscription((await a.db.watchSubscriptions().first).single.id)), isNotNull);
   });
 }

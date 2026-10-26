@@ -30,7 +30,7 @@ class SyncEngine {
   })  : _delay = delay ?? Future.delayed,
         _now = now ?? DateTime.now {
     _tables = {
-      for (final t in [CategoriesSync(db), AccountsSync(db), TransactionsSync(db)]) t.entity: t,
+      for (final t in allSyncTables(db)) t.entity: t,
     };
   }
 
