@@ -123,6 +123,7 @@ router.post('/password', auth, validate({
 }), async (req, res) => {
   const { current_password: current, new_password: next } = req.valid.body;
   if (current === next) throw new AppError(400, 'La nueva contraseña debe ser distinta', 'same_password');
+  limiters.passwordByUser.check(req.userId); // antes de gastar bcrypt: un token robado no puede quemar CPU a ciegas
   const hash = await bcrypt.hash(next, config.bcryptRounds);
   const user = await withTransaction(async (client) => {
     await confirmPasswordOf(client, req.userId, current);

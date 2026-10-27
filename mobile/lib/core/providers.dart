@@ -96,7 +96,12 @@ class AuthController extends AsyncNotifier<Session?> {
   /// Borra la cuenta en el servidor y, solo si lo logró, vacía la base local de este dispositivo.
   Future<void> deleteAccount(String password) async {
     await ref.read(profileRepositoryProvider).deleteAccount(password);
-    await ref.read(databaseProvider)?.wipe();
+    try {
+      await ref.read(databaseProvider)?.wipe();
+    } catch (_) {
+      // La cuenta ya no existe en el servidor: aunque la base local no se pueda vaciar (disco lleno, archivo
+      // bloqueado) hay que salir; ese archivo queda huérfano y nadie lo vuelve a abrir (el id de usuario no se reutiliza).
+    }
     await logout();
   }
 
@@ -109,13 +114,16 @@ class AuthController extends AsyncNotifier<Session?> {
   }
 }
 
+/// Cómo se abre la base de un usuario (las pruebas la sustituyen por una en memoria).
+final databaseOpenerProvider = Provider<AppDatabase Function(String userId)>((ref) => AppDatabase.forUser);
+
 /// Base local del usuario con sesión; se cierra al cambiar de usuario o cerrar sesión.
 /// `null` sin sesión. En modo demo `main()` la reemplaza por una base de ejemplo ya sembrada.
 final databaseProvider = Provider<AppDatabase?>((ref) {
   // Solo el id: cambiar nombre, correo o token no debe cerrar y reabrir la base.
   final userId = ref.watch(authControllerProvider.select((s) => s.value?.userId));
   if (userId == null || AppConfig.demoMode) return null;
-  final db = AppDatabase.forUser(userId);
+  final db = ref.watch(databaseOpenerProvider)(userId);
   ref.onDispose(db.close);
   return db;
 });

@@ -129,8 +129,11 @@ void main() {
       await tapKey(tester, const Key('guardar-nombre'));
       expect(_server.to('PATCH', '/auth/me').single.body, {'name': 'María López'});
       expect(find.byKey(const Key('campo-nombre-perfil')), findsNothing, reason: 'el diálogo se cierra');
-      expect(find.text('María López'), findsWidgets);
       expect(find.text('Nombre actualizado'), findsOneWidget);
+      // La lista es perezosa y al abrir la fila el encabezado quedó fuera de la ventana: se vuelve al inicio.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 600));
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const Key('perfil-nombre-actual'))).data, 'María López');
       expect((await _store.read())!.name, 'María López');
       await finishApp(tester);
     });
@@ -177,7 +180,9 @@ void main() {
       await enter(tester, const Key('campo-contrasena-actual'), 'password123');
       await tapKey(tester, const Key('guardar-correo'));
       expect(_server.to('POST', '/auth/email').last.body, {'email': 'nuevo@example.com', 'password': 'password123'});
-      expect(find.text('nuevo@example.com'), findsWidgets);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 600)); // de vuelta al encabezado
+      await tester.pumpAndSettle();
+      expect(tester.widget<Text>(find.byKey(const Key('perfil-correo-actual'))).data, 'nuevo@example.com');
       expect((await _store.read())!.email, 'nuevo@example.com');
       await finishApp(tester);
     });

@@ -227,7 +227,7 @@ extension AppQueries on AppDatabase {
     return (clauses.join(' AND '), vars);
   }
 
-  Stream<List<TransactionView>> watchTransactions(TransactionFilter f) {
+  Selectable<QueryRow> _transactionRows(TransactionFilter f) {
     final (where, vars) = _where(f);
     return customSelect(
       '''
@@ -241,8 +241,15 @@ extension AppQueries on AppDatabase {
       ${f.limit != null ? 'LIMIT ${f.limit}' : ''}''',
       variables: vars,
       readsFrom: _allTables,
-    ).watch().map((rows) => [for (final r in rows) _toTransactionView(r)]);
+    );
   }
+
+  Stream<List<TransactionView>> watchTransactions(TransactionFilter f) =>
+      _transactionRows(f).watch().map((rows) => [for (final r in rows) _toTransactionView(r)]);
+
+  /// Lectura única (exportaciones): del más reciente al más antiguo, igual que el listado.
+  Future<List<TransactionView>> transactionsFor(TransactionFilter f) async =>
+      [for (final r in await _transactionRows(f).get()) _toTransactionView(r)];
 
   Future<TransactionView?> findTransaction(String id) async {
     final rows = await customSelect(

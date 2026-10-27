@@ -10,6 +10,7 @@ import '../../features/cards/presentation/card_detail_page.dart';
 import '../../features/cards/presentation/card_form_page.dart';
 import '../../features/categories/presentation/categories_page.dart';
 import '../../features/dashboard/presentation/dashboard_page.dart';
+import '../../features/export/presentation/export_page.dart';
 import '../../features/loans/presentation/loan_detail_page.dart';
 import '../../features/loans/presentation/loan_form_page.dart';
 import '../../features/profile/presentation/profile_page.dart';
@@ -47,6 +48,7 @@ abstract final class AppRoutes {
   /// Abre Reportes en Presupuestos; `t` cambia en cada llamada para que repetir el enlace vuelva a surtir efecto.
   static String budgetsLink() => '/reportes?tab=presupuestos&t=${DateTime.now().microsecondsSinceEpoch}';
   static const profile = '/perfil';
+  static const export = '/exportar';
 }
 
 /// Rutas con redirección según la sesión: sin sesión → login; con sesión → Inicio.
@@ -72,6 +74,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: AppRoutes.login, builder: (_, _) => const LoginPage()),
       GoRoute(path: AppRoutes.reauth, builder: (_, _) => const LoginPage(reauth: true)),
       GoRoute(path: AppRoutes.problems, builder: (_, _) => const ProblemsPage()),
+      GoRoute(path: AppRoutes.export, builder: (_, _) => const ExportPage()),
       // Pantallas completas (sin barra inferior) alcanzables desde cualquier pestaña.
       GoRoute(path: AppRoutes.accountNew, builder: (_, _) => const AddAccountPage()),
       GoRoute(

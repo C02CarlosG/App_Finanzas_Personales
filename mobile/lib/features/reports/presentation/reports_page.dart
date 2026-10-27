@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/data/data_providers.dart';
 import '../../../core/db/queries.dart';
 import '../../../core/db/queries_fase3.dart';
 import '../../../core/format/dates.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/sync/sync_controller.dart';
 import '../../../core/ui/fit_trailing.dart';
 import '../../../core/ui/month_navigator.dart';
@@ -66,6 +68,14 @@ class _ReportsPageState extends ConsumerState<ReportsPage> with SingleTickerProv
     return Scaffold(
       appBar: AppBar(
         title: const Text('Reportes'),
+        actions: [
+          IconButton(
+            key: const Key('exportar-reportes'),
+            tooltip: 'Exportar a Excel o PDF',
+            icon: const Icon(Icons.ios_share),
+            onPressed: () => context.push(AppRoutes.export),
+          ),
+        ],
         bottom: TabBar(controller: _tabs, tabs: const [Tab(text: 'Resumen'), Tab(text: 'Presupuestos')]),
       ),
       floatingActionButton: ListenableBuilder(

@@ -1,9 +1,9 @@
 # PROGRESS
 
-_Última actualización: 2026-10-26 (Paso 6)_
+_Última actualización: 2026-10-27 (Paso 7)_
 
 ## Fase y paso actuales
-**Fase 3 – Paso 6 (reportes, presupuestos y alertas) implementado en la rama `paso-6-fase3` (backend + móvil), en revisión.** Los PR #3 (Paso 4) y #4 (Paso 5) ya están en `main`. Siguiente: Paso 7 (exportación Excel/PDF, perfil, sync robusto, suscripción de pago).
+**Fase 4 – Paso 7 (exportación Excel/PDF, perfil y ajustes, sync robusto, base de suscripción) implementado en la rama `paso-7-fase4` (backend + móvil), en revisión.** Los PR #3 (Paso 4), #4 (Paso 5) y #5 (Paso 6) ya están en `main`. Con este paso queda completo el plan del spec; lo que sigue es pulido y publicación (ver «Qué sigue»).
 
 ## Qué está hecho
 - 2026-10-20 – Monorepo creado: `backend/`, `mobile/`, `docs/`, CI, `.gitignore`, `README.md`.
@@ -27,9 +27,14 @@ _Última actualización: 2026-10-26 (Paso 6)_
 - 2026-10-26 – **Paso 6c (pantallas)**: Reportes → Resumen | Presupuestos con selector de mes; ingresos contra gastos, **pastel** de gastos por categoría (las 6 mayores + "Otras") y **líneas** de tendencia dibujados con `CustomPainter` (sin paquetes; descripción para lectores de pantalla y detalle en texto); presupuestos con barra y estado, alta/edición/baja; **alertas dentro de la app**: aviso al guardar un gasto que cruza el umbral o el límite (solo cuando el estado empeora) y sección "Presupuestos" en Inicio para los que están en aviso o excedidos. **262 pruebas Flutter** (10 e2e con dos dispositivos contra la API real). Las pruebas cazaron: leyenda de la tendencia que se desbordaba con texto al 200 %.
 - 2026-10-26 – **Revisión del Paso 6** (revisión de código de alto esfuerzo; 9 hallazgos, verificados contra el código): corregidos 9 — fusionar una categoría duplicada ahora lleva su presupuesto a la que sobrevive (o lo quita); el tombstone de una categoría quita los presupuestos locales sin enviar (se reintentaban para siempre); `duplicate_budget` no descarta el presupuesto nuevo si la baja del viejo va en otro lote; el aviso solo salta cuando el estado **empeora** (antes también al mejorar); tocar otra vez el aviso de Inicio vuelve a abrir Presupuestos; guardar tolera y limpia presupuestos duplicados de una categoría; el editor muestra umbrales distintos de las opciones (p. ej. 75 %); "Otras" y "Sin categoría" ya no comparten color en el pastel; código muerto fuera. Cada arreglo verificado desactivándolo.
 
+- 2026-10-27 – **Paso 7a (backend, perfil)**: migración 005 (`users.token_version`); el JWT lleva `ver` y el middleware de auth revoca tokens (cambiar la contraseña y `POST /auth/logout-all` los invalidan todos; un usuario borrado = 401); `PATCH /auth/me` (nombre), `POST /auth/email`, `/auth/password` (entrega un token nuevo a este dispositivo), `/auth/logout-all` y `/auth/delete-account` (borra de verdad al usuario y todas sus filas en una transacción; una prueba recorre las tablas con `user_id` para que una tabla nueva no se quede sin borrar). Las contraseñas de confirmación erróneas responden **403** (no 401: el cliente toma 401 como «sesión vencida»). **Límite de intentos** en memoria (login por correo+IP y por IP, confirmaciones por usuario: 5 por 15 min, `429` + `Retry-After`). `services/plans.js`: único lugar donde se decide qué incluye cada plan (`user.entitlements`; hoy `free` y `premium` incluyen lo mismo).
+- 2026-10-27 – **Paso 7b (sync robusto)**: migración 006 y `src/sync/purge.js`: el servidor **purga tombstones a los 180 días** (`TOMBSTONE_RETENTION_DAYS`, 0 = nunca; programador diario, candado entre instancias, `npm run purge`), por lotes, hijos antes que padres y sin tocar un tombstone mientras otra fila lo referencie. Guarda por usuario y tabla hasta dónde purgó y `GET /sync/pull` responde **`410 resync_required`** a un cursor que quedó por detrás (el cursor lleva `_marks` para que una descarga inicial paginada no se bloquee). El cliente atiende el 410: borra las filas sincronizadas sin cambios pendientes, olvida el cursor en la misma transacción y vuelve a descargar, **conservando la outbox** (máx. 2 reinicios por ciclo). `docs/sync.md` §5–§8 actualizado.
+- 2026-10-27 – **Paso 7c (Perfil en la app)**: nombre, correo, contraseña, plan (Gratuito/Premium), moneda fija en MXN, cerrar sesión en todos los dispositivos y eliminar cuenta (el servidor primero; solo si responde se vacía la base local y se cierra la sesión). Al abrir Perfil se pone al día con `GET /auth/me` (sin red se queda lo guardado). `databaseProvider` depende solo del id de usuario: editar el perfil ya no cierra y reabre la base.
+- 2026-10-27 – **Paso 7d (exportación)**: Exportar a **Excel (.xlsx) y PDF**, generado en el teléfono (sin red) y entregado con la hoja de compartir del sistema. Periodo (este mes, mes anterior, últimos 3 meses, este año o fechas), filtros de tipo/cuenta/categoría y vista previa con totales. El Excel lleva las hojas «Resumen» (periodo, filtros, totales, por categoría) y «Movimientos» (fechas reales, **importes como números** en columnas Ingreso/Gasto, totales exactos calculados en centavos); el PDF (A4, varias páginas con encabezado repetido) trae el mismo contenido. Entradas desde Perfil, Reportes y Movimientos. El PDF sustituye por «?» lo que Helvetica no dibuja (emojis, otros alfabetos). **129 pruebas de backend y 327 de Flutter** (15 e2e contra la API real, incluida una que fuerza una purga real y un `410`); cada regla verificada desactivándola (en 3 mutaciones de interfaz la prueba termina colgándose en vez de fallar con mensaje, lo que cuenta como detectada).
+
 ## Qué sigue (en orden)
-1. Revisar y aprobar el PR del Paso 6.
-2. Paso 7 – Fase 4 (exportación, perfil, sync robusto, suscripción de pago).
+1. Revisar y aprobar el PR del Paso 7.
+2. Pulido y publicación (no están en el spec; los decides tú): firma de release y dominio HTTPS de la API, logos reales de bancos, recuperación de contraseña por correo (hoy quien la olvida no puede entrar), notificaciones del sistema para presupuestos, un plan de pago real (hoy `free` y `premium` incluyen lo mismo y no hay cobro), mover el limitador de intentos a Redis/BD si el API corre en varias instancias.
 
 ## Decisiones tomadas y por qué
 - **Esquema**: `accounts` con `type` (`banco`/`efectivo`); `transactions` con `type` (`income`/`expense`); saldos por vista SQL `account_balances`; UUID + `updated_at` + `deleted_at` en todas las tablas; categorías por usuario sembradas al registrarse; catálogo de 16 bancos mexicanos sembrado.
@@ -46,19 +51,21 @@ _Última actualización: 2026-10-26 (Paso 6)_
 - **Préstamo derivado**: `principal` es el monto original y el pendiente se calcula (`original + aumentos − abonos`) para que dos dispositivos converjan; las suscripciones no generan gastos solas (el spec solo pide el recordatorio); el saldo de tarjeta sí se guarda (lo captura el usuario) y cada pago lo reduce. Eliminar un préstamo/tarjeta conserva los ingresos/gastos ya registrados.
 - **Esquema local v3** con migración (ya no se edita en sitio).
 - **Móvil/backend (Paso 6, decisiones tuyas del 2026-10-26)**: gráficas **dibujadas con `CustomPainter`** (cero paquetes nuevos; funciona igual en Android y web); alertas de presupuesto **solo dentro de la app** (sin notificaciones del sistema); **Presupuestos** como pestaña de Reportes. El avance de un presupuesto no se guarda: se deriva de las transacciones del mes (nunca diverge entre dispositivos). El aviso al guardar un gasto salta solo cuando el estado empeora (ok → aviso → excedido), no en cada gasto.
+- **Móvil/backend (Paso 7, decisiones tuyas del 2026-10-27)**: exportar a **Excel y PDF en el dispositivo** (funciona sin conexión; 3 paquetes nuevos, todos de Dart puro: `excel` para el `.xlsx`, `pdf` para el PDF con la Helvetica incluida y `share_plus` para la hoja de compartir del sistema); **moneda fija en MXN** (se muestra en Perfil, sin selector); **suscripción: solo la base técnica** (el plan se ve en Perfil y `services/plans.js` es el único lugar donde se decide qué incluye cada plan; sin límites ni cobro); **tombstones: purga a los 180 días + `410 resync_required`**.
+- **Sesiones**: el JWT lleva `ver` (= `users.token_version`) y el middleware de auth hace una lectura por clave primaria por petición para poder revocar (cambio de contraseña, cerrar sesión en todos lados) y detectar usuarios borrados. Una contraseña de confirmación incorrecta responde 403, no 401. Borrar la cuenta elimina de verdad (no deja tombstones), vía `POST /auth/delete-account` (algunos proxies descartan el cuerpo de un `DELETE`).
 - **Pruebas**: BD aparte `*_test` obligatoria; el helper se niega a correr contra otra.
 
 ## Problemas abiertos / dudas para ti
-1. **Moneda**: el spec dice "cambiar moneda" y tú pides MXN. ¿Fija en MXN por ahora? (hoy `users.currency` existe con default `MXN` y el dashboard devuelve `MXN` fijo).
+1. ~~Moneda~~ → decidido (Paso 7): fija en MXN; `users.currency` queda en `MXN` y el cliente no la puede cambiar. Si algún día se quiere multimoneda, es un cambio de modelo (importes por cuenta), no solo un selector.
 2. ~~Préstamos en la navegación~~ → decidido: pestaña dentro de Bancos.
 3. El backend original no se recuperó; esta versión es una reconstrucción con las decisiones que me diste. Si aparece el original, hay que compararlos.
-4. Sin límite de intentos de login ni recuperación de contraseña aún (a considerar en Fase 4).
+4. **Recuperar la contraseña por correo** sigue sin existir (no hay servicio de correo): quien la olvida no puede entrar; hay que elegir proveedor (SMTP, Resend, SES…) y definir el flujo. El **límite de intentos** (Paso 7) vive en la memoria de un solo proceso: con varias instancias del API cada una lleva su cuenta; antes de escalar hay que moverlo a Redis o a la BD, y detrás de un proxy definir `TRUST_PROXY` (docs/sync.md §8).
 5. **Transacción huérfana** (solo si el padre ya llegó como tombstone; mientras esté pendiente, el cliente reintenta) (otro dispositivo borró la cuenta/categoría mientras este creaba una transacción offline): el servidor responde `invalid_reference`; la UX para reasignar o descartar se define en el Paso 4.
-6. **Tombstones** nunca se purgan; definir retención y `410 resync_required` en Fase 4.
+6. ~~Tombstones~~ → resuelto (Paso 7b). Límite conocido: un dispositivo que pase más de 180 días sin conectarse **y** tenga cambios pendientes sobre un registro cuyo tombstone ya se purgó lo "resucita" al sincronizar (docs/sync.md §7).
 7. **Web**: `sqlite3.wasm` y `drift_worker.js` ya están en `web/` (deben coincidir con las versiones de `pubspec.lock`). **iOS** se agrega después.
 7b. **Logos reales de bancos**: no hay assets en el repo (marcas); las iniciales con color son el sustituto. Si los quieres, coloca los PNG en `mobile/assets/banks/`.
 7c. **Búsqueda y orden sin acentos** ("cafe" no halla "Café"): pendiente de normalización.
-7d. **Moneda**: sigue fija en MXN (tu decisión pendiente: ¿configurable más adelante?).
+7d. **Exportación**: el PDF usa la Helvetica incluida (solo Latin-1: acentos y ñ sí; emojis y otros alfabetos salen como «?»; las comillas y guiones tipográficos de los teclados se pasan a ASCII). El Excel conserva todo el texto. Exportaciones de miles de movimientos se generan en el hilo de la interfaz (puede notarse un instante).
 8. **APK**: no se compila localmente (sin Android SDK en el entorno); lo compila el CI (`mobile-demo`, en verde). Es un APK de **depuración en modo demo**; un build de producción necesita firma (keystore) y decidir HTTPS/dominio de la API.
 8b. **Esquema local**: `schemaVersion = 3` con migraciones v1→v2→v3 (probadas). Antes del primer lanzamiento hay que congelar la versión y mantener una migración por cambio.
 8c. **Saldo de tarjeta con dos dispositivos**: si pagan la misma tarjeta antes de sincronizar, LWW conserva uno de los descuentos (límite aceptado, `docs/sync.md` §7). Un saldo derivado de cargos requeriría registrar los cargos de la tarjeta (no está en el spec).
@@ -71,6 +78,7 @@ _Última actualización: 2026-10-26 (Paso 6)_
 # Backend
 cd backend && cp .env.example .env && npm install
 npm run migrate && npm start
+npm run purge   # purga de tombstones a mano (el servidor ya lo hace a diario; TOMBSTONE_RETENTION_DAYS, 0 = nunca)
 
 # Pruebas (BD con nombre *_test)
 export TEST_DATABASE_URL=postgres://usuario:password@localhost:5432/finanzas_test
@@ -80,7 +88,7 @@ cd backend && npm test
 flutter pub get && dart run build_runner build --delete-conflicting-outputs
 flutter analyze && flutter test
 flutter run --dart-define=DEMO_MODE=true   # ver pantallas sin servidor
-# e2e contra la API real: ver mobile/README.md
+# e2e contra la API real: ver mobile/README.md (la e2e de la purga también necesita DATABASE_URL del servidor)
 ```
 
 ## Notas del entorno cloud

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/config/app_config.dart';
 import '../../../core/data/data_providers.dart';
 import '../../../core/providers.dart';
+import '../../../core/router/app_router.dart';
 import 'action_dialog.dart';
 
 String planLabel(String plan) => plan == 'premium' ? 'Premium' : 'Gratuito';
@@ -229,6 +231,15 @@ class _ProfilePageState extends ConsumerState<ProfilePage> {
             subtitle: Text(session?.plan == 'premium'
                 ? 'Premium'
                 : 'Gratuito · incluye todas las funciones por ahora'),
+          ),
+          const Divider(),
+          ListTile(
+            key: const Key('exportar-datos'),
+            leading: const Icon(Icons.ios_share),
+            title: const Text('Exportar a Excel o PDF'),
+            subtitle: const Text('Movimientos y resumen del periodo que elijas'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push(AppRoutes.export),
           ),
           if (online) ...[
             const Divider(),
