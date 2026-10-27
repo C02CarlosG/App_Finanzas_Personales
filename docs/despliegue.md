@@ -51,8 +51,9 @@ host, hay que compilar e instalar un APK nuevo. Con un dominio propio apuntando 
 ### API dormida
 
 En el plan gratuito, Render apaga la API tras un rato sin tráfico y la primera petición la vuelve a arrancar (decenas de segundos).
-El sync reintenta solo, pero el cliente espera **20 s** por petición (`mobile/lib/core/network/api_client.dart`): un primer
-registro o login con la API dormida puede fallar y funcionar al reintentar.
+El sync reintenta solo y el cliente espera hasta **60 s** por petición (`ApiClient.defaultTimeout` en
+`mobile/lib/core/network/api_client.dart`): un primer registro o login con la API dormida tarda, pero debe terminar. Si el
+proveedor tarda más que eso, la app muestra «El servidor tardó demasiado en responder» y funciona al reintentar.
 
 ## 3. Respaldos (aunque sea gratis)
 

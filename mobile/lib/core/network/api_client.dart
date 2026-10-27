@@ -12,8 +12,12 @@ class ApiClient {
     required this.baseUrl,
     required http.Client httpClient,
     this.tokenProvider,
-    this.timeout = const Duration(seconds: 20),
+    this.timeout = defaultTimeout,
   }) : _http = httpClient;
+
+  /// Una API en un plan gratuito se apaga sin tráfico y la primera petición tarda decenas de segundos en despertarla
+  /// (docs/despliegue.md); con menos, el primer registro o login fallaría aunque el servidor responda.
+  static const defaultTimeout = Duration(seconds: 60);
 
   final String baseUrl;
   final http.Client _http;

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:finanzas_personales/core/network/api_client.dart';
 import 'package:finanzas_personales/core/network/api_exception.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,6 +79,26 @@ void main() {
       timeout: const Duration(milliseconds: 50),
     );
     await expectLater(api.get('/x'), throwsA(isA<ApiException>().having((e) => e.isNetwork, 'isNetwork', true)));
+  });
+
+  test('por defecto espera 60 s: tolera una API gratuita que está despertando', () {
+    fakeAsync((async) {
+      final never = Completer<http.Response>(); // el servidor no responde
+      final api = ApiClient(baseUrl: 'http://api.test', httpClient: MockClient((_) => never.future));
+      var done = false;
+      Object? error;
+      api.get('/x').then<void>((_) => done = true, onError: (Object e) {
+        error = e;
+        done = true;
+      });
+
+      async.elapse(const Duration(seconds: 59));
+      expect(done, false, reason: 'a los 59 s todavía espera');
+
+      async.elapse(const Duration(seconds: 2));
+      expect(done, true, reason: 'pasados los 60 s se rinde');
+      expect(error, isA<ApiException>().having((e) => e.isNetwork, 'isNetwork', true));
+    });
   });
 
   test('una respuesta 2xx que no es JSON se reporta como bad_response', () async {

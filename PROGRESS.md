@@ -1,9 +1,9 @@
 # PROGRESS
 
-_Última actualización: 2026-10-27 (Paso 9: despliegue gratuito de la API; parche de body-parser)_
+_Última actualización: 2026-10-27 (Paso 9: despliegue gratuito de la API; parche de body-parser; tiempo de espera del cliente)_
 
 ## Fase y paso actuales
-**Paso 9 – despliegue gratuito de la API (Neon + Render): fusionado como `0931d9d`.** El plan del spec está completo: los PR #3 a #8 (Pasos 4 a 9) ya están en `main`. El Paso 9 es una corrección pequeña del backend y la guía `docs/despliegue.md`. La API ya corre en Render; falta que el dueño del proyecto aplique las migraciones (comando de arranque `npm run migrate && npm start`), cree la llave y los secretos y corra `release-android`. En revisión, en ramas aparte: parche de `body-parser` (`fix-body-parser-dos`) y tiempo de espera del cliente (`timeout-cliente-60s`).
+**Paso 9 – despliegue gratuito de la API (Neon + Render): fusionado como `0931d9d`.** El plan del spec está completo: los PR #3 a #8 (Pasos 4 a 9) ya están en `main`. El Paso 9 es una corrección pequeña del backend y la guía `docs/despliegue.md`. La API ya corre en Render; falta que el dueño del proyecto aplique las migraciones (comando de arranque `npm run migrate && npm start`), cree la llave y los secretos y corra `release-android`. Después se fusionaron el parche de `body-parser` (`3425557`) y, en el PR de la rama `timeout-cliente-60s`, el tiempo de espera del cliente de 60 s (en revisión).
 
 ## Qué está hecho
 - 2026-10-20 – Monorepo creado: `backend/`, `mobile/`, `docs/`, CI, `.gitignore`, `README.md`.
@@ -38,11 +38,11 @@ _Última actualización: 2026-10-27 (Paso 9: despliegue gratuito de la API; parc
 
 - 2026-10-27 – **Paso 9 (despliegue gratuito de la API)**: el pool de PostgreSQL ahora atiende el evento `error` de las conexiones ociosas (`backend/src/db/pool.js`); sin eso, que la base se reinicie o se suspenda (Neon gratis) tumbaba el proceso. Prueba nueva (`test/pool.test.js`) con mutación verificada. `docs/despliegue.md`: Neon (cadena **directa**, sin pooler, porque la purga usa un candado de sesión; `sslmode=verify-full`) + Render (comando de arranque `npm run migrate && npm start`), respaldos con `pg_dump` y paso a un plan de pago. Límites de los planes gratuitos **no verificados** en línea: se advierte en la guía. Pendiente de decidir: el cliente espera 20 s por petición y una API gratuita dormida puede tardar más en la primera petición.
 - 2026-10-27 – **Parche de seguridad**: `npm audit` reportaba 1 vulnerabilidad alta en `body-parser` 2.0.0–2.3.0 (dependencia de Express; denegación de servicio por bytes sobrantes tras un cuerpo comprimido, GHSA-27r3-jxmh-p828). `npm audit fix` solo actualizó `package-lock.json` (2.3.0 → 2.4.0, sin dependencias nuevas ni cambios en `package.json`); 0 vulnerabilidades, 131 pruebas pasan.
+- 2026-10-27 – **Tiempo de espera del cliente: 20 s → 60 s** (`ApiClient.defaultTimeout`), decidido por el dueño del proyecto: una API en plan gratuito se duerme y su primera petición tarda decenas de segundos; con 20 s el primer registro o login fallaba aunque el servidor respondiera. Prueba nueva con reloj simulado (a los 59 s sigue esperando, pasados los 60 s se rinde con error de red); mutación a 20 s verificada. Efecto secundario aceptado: una conexión colgada ocupa el ciclo de sync hasta 60 s. 324 pruebas de Flutter pasan. `docs/despliegue.md` actualizado.
 
 ## Qué sigue (en orden)
-1. **Tú**: desplegar la API siguiendo `docs/despliegue.md`; crear la llave y los secretos (`docs/release-android.md` §2 y §4) y correr `release-android` con `dry_run` desmarcado.
-2. Decidir si el cliente sube el tiempo de espera de 20 s a ~60 s para tolerar una API dormida (cambio pequeño con prueba), o se acepta reintentar el primer login.
-3. Pulido y publicación (los decides tú): recuperación de contraseña por correo (hoy quien la olvida no puede entrar), ficha y política de privacidad si quieres Google Play, logos reales de bancos, notificaciones del sistema para presupuestos, un plan de pago real (hoy `free` y `premium` incluyen lo mismo y no hay cobro), mover el limitador de intentos a Redis/BD si el API corre en varias instancias.
+1. **Tú**: aplicar las migraciones en Render (comando de arranque `npm run migrate && npm start`), verificar el registro desde la app, crear la llave y los secretos (`docs/release-android.md` §2 y §4) y correr `release-android` con `dry_run` desmarcado.
+2. Pulido y publicación (los decides tú): recuperación de contraseña por correo (hoy quien la olvida no puede entrar), ficha y política de privacidad si quieres Google Play, logos reales de bancos, notificaciones del sistema para presupuestos, un plan de pago real (hoy `free` y `premium` incluyen lo mismo y no hay cobro), mover el limitador de intentos a Redis/BD si el API corre en varias instancias.
 
 ## Decisiones tomadas y por qué
 - **Esquema**: `accounts` con `type` (`banco`/`efectivo`); `transactions` con `type` (`income`/`expense`); saldos por vista SQL `account_balances`; UUID + `updated_at` + `deleted_at` en todas las tablas; categorías por usuario sembradas al registrarse; catálogo de 16 bancos mexicanos sembrado.
