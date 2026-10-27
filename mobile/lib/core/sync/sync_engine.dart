@@ -13,6 +13,7 @@ class SyncReport {
   int pushed = 0; // cambios enviados
   int pulled = 0; // registros recibidos
   int retained = 0; // cambios que siguen pendientes tras el ciclo (con error o bloqueados)
+  bool resynced = false; // el servidor pidió volver a descargar todo (410 resync_required)
 
   @override
   String toString() => 'SyncReport(pushed: $pushed, pulled: $pulled, retained: $retained)';
@@ -36,6 +37,10 @@ class SyncEngine {
 
   static const maxBatch = 200;
   static const _maxTransientRetries = 3;
+
+  /// Cuántas veces por ciclo se acepta un `410 resync_required` antes de rendirse (un 410 seguido
+  /// de otro solo ocurre si el servidor purga justo mientras se descarga).
+  static const _maxResyncs = 2;
 
   final AppDatabase db;
   final SyncApi api;
@@ -289,8 +294,19 @@ class SyncEngine {
 
   Future<void> _pull(SyncReport report) async {
     var cursor = await db.readState('cursor');
+    var resyncs = 0;
     while (true) {
-      final res = await api.pull(cursor: cursor);
+      final Map<String, dynamic> res;
+      try {
+        res = await api.pull(cursor: cursor);
+      } on ApiException catch (e) {
+        if (e.code != 'resync_required' || resyncs >= _maxResyncs) rethrow;
+        resyncs += 1;
+        report.resynced = true;
+        await _prepareResync();
+        cursor = null;
+        continue;
+      }
       await _learnClockOffset(res['server_time'] as String?);
       final changes = res['changes'] as Map<String, dynamic>;
       final next = res['next_cursor'] as String;
@@ -320,6 +336,24 @@ class SyncEngine {
       if (res['has_more'] != true) return;
     }
   }
+
+  /// `410 resync_required` (docs/sync.md §7): el servidor ya purgó tombstones que este dispositivo no llegó a ver,
+  /// así que su copia local puede tener registros que allá ya no existen y no hay forma de saberlo con un cursor.
+  /// Se vuelve a descargar todo desde cero **sin perder nada pendiente**: se borran las filas ya sincronizadas
+  /// que no tienen cambios en la outbox (el servidor las devuelve si siguen existiendo) y se olvida el cursor,
+  /// todo en una transacción para que un cierre a medias reanude como sincronización inicial.
+  /// Se conservan las filas con renglón en la outbox y las que nunca se enviaron (`updated_at` nulo).
+  Future<void> _prepareResync() => db.transaction(() async {
+        for (final entity in syncEntities) {
+          await db.customStatement(
+            'DELETE FROM $entity WHERE updated_at IS NOT NULL '
+            'AND id NOT IN (SELECT record_id FROM sync_outbox WHERE entity = ?)',
+            [entity],
+          );
+        }
+        await db.deleteState('cursor');
+        db.markTablesUpdated(db.allTables);
+      });
 
   Future<void> _applyPulled(SyncTable table, Map<String, dynamic> record) async {
     final id = record['id'] as String;

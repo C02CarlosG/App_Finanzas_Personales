@@ -62,6 +62,8 @@ class AppDatabase extends _$AppDatabase {
     return row?.value;
   }
 
+  Future<void> deleteState(String key) => (delete(syncState)..where((t) => t.key.equals(key))).go();
+
   Future<void> writeState(String key, String value) =>
       into(syncState).insertOnConflictUpdate(SyncStateCompanion.insert(key: key, value: value));
 }
