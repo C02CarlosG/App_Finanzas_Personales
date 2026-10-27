@@ -62,6 +62,17 @@ class AppDatabase extends _$AppDatabase {
     return row?.value;
   }
 
+  /// Vacía toda la base (borrar cuenta): filas, outbox y cursor. El archivo se compacta para que el contenido
+  /// borrado no quede en páginas libres. La base de ese usuario ya no se volverá a abrir.
+  Future<void> wipe() async {
+    await transaction(() async {
+      for (final table in allTables) {
+        await delete(table).go();
+      }
+    });
+    await customStatement('VACUUM');
+  }
+
   Future<void> deleteState(String key) => (delete(syncState)..where((t) => t.key.equals(key))).go();
 
   Future<void> writeState(String key, String value) =>
