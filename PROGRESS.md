@@ -1,9 +1,9 @@
 # PROGRESS
 
-_Última actualización: 2026-10-27 (Paso 8: release de Android)_
+_Última actualización: 2026-10-27 (Paso 9: despliegue gratuito de la API)_
 
 ## Fase y paso actuales
-**Paso 8 – release de Android implementado en la rama `paso-8-release-android` (móvil + CI + docs), en revisión.** El plan del spec está completo: los PR #3 a #6 (Pasos 4 a 7) ya están en `main` (el Paso 7 como `a57b6c3`). Este paso prepara la distribución (APK directo a conocidos); ver `docs/release-android.md`.
+**Paso 9 – despliegue gratuito de la API (Neon + Render) en la rama `paso-9-despliegue-gratuito`, en revisión.** El plan del spec está completo: los PR #3 a #7 (Pasos 4 a 8) ya están en `main` (el Paso 8, release de Android, como `c597abc`). El Paso 9 es una corrección pequeña del backend y la guía `docs/despliegue.md`; el despliegue y el release firmado los hace el dueño del proyecto.
 
 ## Qué está hecho
 - 2026-10-20 – Monorepo creado: `backend/`, `mobile/`, `docs/`, CI, `.gitignore`, `README.md`.
@@ -36,9 +36,11 @@ _Última actualización: 2026-10-27 (Paso 8: release de Android)_
 
 - 2026-10-27 – **Paso 8 (release de Android)**: el build release **ya no se firma con la llave de depuración**: `android/app/build.gradle.kts` firma con `android/key.properties` (local) o `ANDROID_KEYSTORE_*` (CI) y **falla** con un mensaje claro si falta la llave (`-PallowDebugSigning=true` solo para pruebas locales); ninguna llave entra al repositorio. Un release sin `API_BASE_URL=https://…` arranca en una pantalla «App mal configurada» (`AppConfig.problem`) en vez de fallar en silencio. Flujo `release-android` (manual o en PRs que toquen Android): compila APK y AAB, **verifica** que no estén firmados con la llave de depuración, el paquete, el SHA-256 del certificado (si defines `ANDROID_CERT_SHA256`) y que la URL de la API quedó compilada; con `dry_run` usa una llave desechable. Ícono adaptativo propio (cartera sobre el verde de la app, con versión monocromática) y PNG para Android 7. `docs/release-android.md`: crear y respaldar la llave, secretos de GitHub, servidor, instalación y lista para Google Play.
 
+- 2026-10-27 – **Paso 9 (despliegue gratuito de la API)**: el pool de PostgreSQL ahora atiende el evento `error` de las conexiones ociosas (`backend/src/db/pool.js`); sin eso, que la base se reinicie o se suspenda (Neon gratis) tumbaba el proceso. Prueba nueva (`test/pool.test.js`) con mutación verificada. `docs/despliegue.md`: Neon (cadena **directa**, sin pooler, porque la purga usa un candado de sesión; `sslmode=verify-full`) + Render (comando de arranque `npm run migrate && npm start`), respaldos con `pg_dump` y paso a un plan de pago. Límites de los planes gratuitos **no verificados** en línea: se advierte en la guía. Pendiente de decidir: el cliente espera 20 s por petición y una API gratuita dormida puede tardar más en la primera petición.
+
 ## Qué sigue (en orden)
-1. Revisar y aprobar el PR del Paso 8; después **tú** creas la llave y los secretos (`docs/release-android.md` §2 y §4) y corres `release-android` con `dry_run` desmarcado.
-2. Desplegar la API con HTTPS (host, dominio, PostgreSQL, respaldos); nada de eso está automatizado todavía.
+1. **Tú**: desplegar la API siguiendo `docs/despliegue.md`; crear la llave y los secretos (`docs/release-android.md` §2 y §4) y correr `release-android` con `dry_run` desmarcado.
+2. Decidir si el cliente sube el tiempo de espera de 20 s a ~60 s para tolerar una API dormida (cambio pequeño con prueba), o se acepta reintentar el primer login.
 3. Pulido y publicación (los decides tú): recuperación de contraseña por correo (hoy quien la olvida no puede entrar), ficha y política de privacidad si quieres Google Play, logos reales de bancos, notificaciones del sistema para presupuestos, un plan de pago real (hoy `free` y `premium` incluyen lo mismo y no hay cobro), mover el limitador de intentos a Redis/BD si el API corre en varias instancias.
 
 ## Decisiones tomadas y por qué

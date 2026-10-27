@@ -83,7 +83,8 @@ el resumen.
 El APK solo sirve si la API está en línea con HTTPS. Mínimo: un host con Node 22 y PostgreSQL 16, `npm ci && npm run migrate`,
 variables de `backend/.env.example` (`DATABASE_URL`, `JWT_SECRET` largo y aleatorio, `TRUST_PROXY=1` detrás de un proxy), certificado TLS
 (Caddy, nginx + Let's Encrypt o el que ofrezca tu proveedor) y **respaldos de la base**. El API ya purga tombstones a diario
-(`TOMBSTONE_RETENTION_DAYS`). Nada de esto lo despliega el repositorio todavía.
+(`TOMBSTONE_RETENTION_DAYS`). Para una prueba sin costo (Neon + Render) sigue [`docs/despliegue.md`](despliegue.md); el repositorio
+todavía no automatiza el despliegue.
 
 ## 7. Cuando quieras Google Play
 
