@@ -222,8 +222,10 @@ test('borrar cuenta elimina de verdad al usuario y todas sus filas, y deja intac
     'una tabla nueva con user_id debe agregarse a deleteUserData');
   const a = await h.registerUser({ email: 'adios@example.com' });
   const b = await h.registerUser();
-  await seedEverything(a);
-  await seedEverything(b);
+  for (const u of [a, b]) {
+    await seedEverything(u);
+    await pool.query("INSERT INTO sync_purge_watermarks (user_id, table_name, updated_at, id) VALUES ($1, 'accounts', now(), $2)", [u.user.id, uid()]);
+  }
   for (const t of tables) assert.ok(await rowsOf(t, a.user.id) > 0, `la prueba debe sembrar ${t}`);
   const banks = Number((await pool.query('SELECT count(*) FROM banks')).rows[0].count);
 

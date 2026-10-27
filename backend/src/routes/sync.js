@@ -40,7 +40,7 @@ const pushBody = z.object({
 });
 
 const pullQuery = z.object({
-  cursor: z.string().max(2048).optional(),
+  cursor: z.string().max(4096).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(500),
 });
 
@@ -49,23 +49,44 @@ router.post('/push', validate({ body: pushBody }), async (req, res) => {
   res.json({ results, server_time: serverNow.toISOString() });
 });
 
+// Marcas de purga del usuario ('ts|id' por tabla): hasta dónde el servidor borró tombstones definitivamente.
+async function purgeWatermarks(client, userId) {
+  const { rows } = await client.query(
+    `SELECT table_name,
+            to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') || '|' || id AS position
+       FROM sync_purge_watermarks WHERE user_id = $1`, [userId]);
+  return Object.fromEntries(rows.map((r) => [r.table_name, r.position]));
+}
+
 router.get('/pull', validate({ query: pullQuery }), async (req, res) => {
-  const positions = cursor.decode(req.valid.query.cursor);
-  if (!positions) throw new AppError(400, 'Cursor inválido', 'invalid_cursor');
+  const decoded = cursor.decode(req.valid.query.cursor);
+  if (!decoded) throw new AppError(400, 'Cursor inválido', 'invalid_cursor');
+  const { positions, marks, initial } = decoded;
   const { limit } = req.valid.query;
   const lag = Math.max(0, config.syncSafetyLagMs);
 
   // Una sola foto de la BD para todas las tablas de esta página.
-  const { changes, nextPositions, hasMore, serverNow } = await withTransaction(async (client) => {
+  const { changes, nextPositions, nextMarks, hasMore, serverNow } = await withTransaction(async (client) => {
     const serverNow = (await client.query('SELECT now() AS now')).rows[0].now;
+    const purged = await purgeWatermarks(client, req.userId);
     const changes = {};
     const nextPositions = { ...positions };
+    const nextMarks = { ...marks }; // solo cambian en la sincronización inicial
     let hasMore = false;
     for (const name of PULL_ORDER) {
       const def = ENTITIES[name] ?? READONLY_CATALOGS[name];
       const [after, afterId] = positions[name].split('|');
       const scope = ENTITIES[name] ? 't.user_id = $5 AND ' : '';
       const params = [after, afterId, lag, limit, ...(ENTITIES[name] ? [req.userId] : [])];
+      const watermark = purged[name]; // solo existe para tablas de usuario
+      if (watermark) {
+        // Una sincronización inicial no echa de menos nada de lo ya purgado: parte de la marca actual.
+        if (initial) nextMarks[name] = watermark;
+        // Se purgó algo que este cliente no llegó a ver: su copia local ya no se puede poner al día.
+        else if (cursor.later(positions[name], marks[name]).toLowerCase() < watermark.toLowerCase()) {
+          throw new AppError(410, 'Tu copia local es demasiado antigua: hay que volver a descargar todo', 'resync_required');
+        }
+      }
       const { rows } = await client.query(
         `SELECT ${def.select} FROM ${def.table} t
          WHERE ${scope}(t.updated_at, t.id) > ($1::timestamptz, $2::uuid)
@@ -75,10 +96,10 @@ router.get('/pull', validate({ query: pullQuery }), async (req, res) => {
       if (rows.length) nextPositions[name] = `${rows[rows.length - 1].updated_at}|${rows[rows.length - 1].id}`;
       if (rows.length === limit) hasMore = true;
     }
-    return { changes, nextPositions, hasMore, serverNow };
+    return { changes, nextPositions, nextMarks, hasMore, serverNow };
   }, 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
 
-  res.json({ changes, next_cursor: cursor.encode(nextPositions), has_more: hasMore, server_time: serverNow.toISOString() });
+  res.json({ changes, next_cursor: cursor.encode(nextPositions, nextMarks), has_more: hasMore, server_time: serverNow.toISOString() });
 });
 
 module.exports = router;

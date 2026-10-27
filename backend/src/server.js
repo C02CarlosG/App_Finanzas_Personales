@@ -6,4 +6,6 @@ if (!config.databaseUrl || !config.jwtSecret) {
 }
 
 const app = require('./app');
+const { startPurgeScheduler } = require('./sync/purge');
 app.listen(config.port, () => console.log(`API escuchando en :${config.port}`));
+startPurgeScheduler();

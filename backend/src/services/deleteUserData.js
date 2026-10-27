@@ -2,7 +2,7 @@
 // deleted_at, porque un tombstone seguiría guardando sus datos. Orden: hijos antes que padres (FKs).
 // Debe llamarse dentro de una transacción. El catálogo de bancos es global y no se toca.
 const TABLES_CHILDREN_FIRST = [
-  'credit_card_payments', 'loan_movements', 'budgets', 'subscriptions', 'transactions',
+  'sync_purge_watermarks', 'credit_card_payments', 'loan_movements', 'budgets', 'subscriptions', 'transactions',
   'credit_cards', 'loans', 'accounts', 'categories',
 ];
 
