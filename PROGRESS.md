@@ -1,9 +1,9 @@
 # PROGRESS
 
-_Última actualización: 2026-10-27 (Paso 7)_
+_Última actualización: 2026-10-27 (Paso 8: release de Android)_
 
 ## Fase y paso actuales
-**Fase 4 – Paso 7 (exportación Excel/PDF, perfil y ajustes, sync robusto, base de suscripción) implementado en la rama `paso-7-fase4` (backend + móvil), en revisión.** Los PR #3 (Paso 4), #4 (Paso 5) y #5 (Paso 6) ya están en `main`. Con este paso queda completo el plan del spec; lo que sigue es pulido y publicación (ver «Qué sigue»).
+**Paso 8 – release de Android implementado en la rama `paso-8-release-android` (móvil + CI + docs), en revisión.** El plan del spec está completo: los PR #3 a #6 (Pasos 4 a 7) ya están en `main` (el Paso 7 como `a57b6c3`). Este paso prepara la distribución (APK directo a conocidos); ver `docs/release-android.md`.
 
 ## Qué está hecho
 - 2026-10-20 – Monorepo creado: `backend/`, `mobile/`, `docs/`, CI, `.gitignore`, `README.md`.
@@ -34,9 +34,12 @@ _Última actualización: 2026-10-27 (Paso 7)_
 
 - 2026-10-27 – **Revisión del Paso 7** (revisión de código de alto esfuerzo; 10 hallazgos, verificados contra el código): corregidos 8 — el PDF fallaba con más de ~800 movimientos (el paquete corta en 20 páginas por defecto; ahora hasta 5000); el orden de movimientos del mismo día no era estable (`List.sort` no lo es); las categorías borradas se mezclaban con una categoría real llamada «Sin categoría»; el Excel/PDF se generaban en el hilo de la interfaz (ahora en un isolate); la vista previa cargaba todas las filas solo para contar (ahora `COUNT`); «Listo» salía aunque el usuario cerrara la hoja de compartir; `pdfSafe` colapsaba los `??` que el usuario escribió; nombre de variable que ocultaba el ayudante. Documentado sin código: si el vaciado local falla tras borrar la cuenta (7e) y el doble chequeo del limitador al cambiar la contraseña (intencional: evita gastar bcrypt con un token robado). Cada arreglo verificado desactivándolo.
 
+- 2026-10-27 – **Paso 8 (release de Android)**: el build release **ya no se firma con la llave de depuración**: `android/app/build.gradle.kts` firma con `android/key.properties` (local) o `ANDROID_KEYSTORE_*` (CI) y **falla** con un mensaje claro si falta la llave (`-PallowDebugSigning=true` solo para pruebas locales); ninguna llave entra al repositorio. Un release sin `API_BASE_URL=https://…` arranca en una pantalla «App mal configurada» (`AppConfig.problem`) en vez de fallar en silencio. Flujo `release-android` (manual o en PRs que toquen Android): compila APK y AAB, **verifica** que no estén firmados con la llave de depuración, el paquete, el SHA-256 del certificado (si defines `ANDROID_CERT_SHA256`) y que la URL de la API quedó compilada; con `dry_run` usa una llave desechable. Ícono adaptativo propio (cartera sobre el verde de la app, con versión monocromática) y PNG para Android 7. `docs/release-android.md`: crear y respaldar la llave, secretos de GitHub, servidor, instalación y lista para Google Play.
+
 ## Qué sigue (en orden)
-1. Revisar y aprobar el PR del Paso 7.
-2. Pulido y publicación (no están en el spec; los decides tú): firma de release y dominio HTTPS de la API, logos reales de bancos, recuperación de contraseña por correo (hoy quien la olvida no puede entrar), notificaciones del sistema para presupuestos, un plan de pago real (hoy `free` y `premium` incluyen lo mismo y no hay cobro), mover el limitador de intentos a Redis/BD si el API corre en varias instancias.
+1. Revisar y aprobar el PR del Paso 8; después **tú** creas la llave y los secretos (`docs/release-android.md` §2 y §4) y corres `release-android` con `dry_run` desmarcado.
+2. Desplegar la API con HTTPS (host, dominio, PostgreSQL, respaldos); nada de eso está automatizado todavía.
+3. Pulido y publicación (los decides tú): recuperación de contraseña por correo (hoy quien la olvida no puede entrar), ficha y política de privacidad si quieres Google Play, logos reales de bancos, notificaciones del sistema para presupuestos, un plan de pago real (hoy `free` y `premium` incluyen lo mismo y no hay cobro), mover el limitador de intentos a Redis/BD si el API corre en varias instancias.
 
 ## Decisiones tomadas y por qué
 - **Esquema**: `accounts` con `type` (`banco`/`efectivo`); `transactions` con `type` (`income`/`expense`); saldos por vista SQL `account_balances`; UUID + `updated_at` + `deleted_at` en todas las tablas; categorías por usuario sembradas al registrarse; catálogo de 16 bancos mexicanos sembrado.
@@ -69,7 +72,7 @@ _Última actualización: 2026-10-27 (Paso 7)_
 7c. **Búsqueda y orden sin acentos** ("cafe" no halla "Café"): pendiente de normalización.
 7d. **Exportación**: el PDF usa la Helvetica incluida (solo Latin-1: acentos y ñ sí; emojis y otros alfabetos salen como «?»; las comillas y guiones tipográficos de los teclados se pasan a ASCII). El Excel conserva todo el texto. El archivo se genera en un isolate (en web, en el mismo hilo), así que un año de movimientos no congela la interfaz.
 7e. **Borrar cuenta y disco**: si el servidor borra la cuenta pero el vaciado de la base local falla (disco lleno, archivo bloqueado; muy raro), la sesión se cierra igual y el archivo SQLite de ese usuario queda en el teléfono sin que nadie lo vuelva a abrir; desinstalar la app lo elimina. No hay reintento automático (no hay respaldo de Android: `allowBackup=false`).
-8. **APK**: no se compila localmente (sin Android SDK en el entorno); lo compila el CI (`mobile-demo`, en verde). Es un APK de **depuración en modo demo**; un build de producción necesita firma (keystore) y decidir HTTPS/dominio de la API.
+8. **APK**: no se compila localmente (sin Android SDK en el entorno); lo compila el CI. `mobile-demo` produce un APK de **depuración en modo demo**; el de **release** lo produce `release-android` (Paso 8) y necesita **tu** llave y una API con HTTPS (`docs/release-android.md`). El `applicationId` (`mx.finanzaspersonales.finanzas_personales`) queda fijo al publicar: si no controlas ese dominio, decídelo antes de distribuir.
 8b. **Esquema local**: `schemaVersion = 3` con migraciones v1→v2→v3 (probadas). Antes del primer lanzamiento hay que congelar la versión y mantener una migración por cambio.
 8c. **Saldo de tarjeta con dos dispositivos**: si pagan la misma tarjeta antes de sincronizar, LWW conserva uno de los descuentos (límite aceptado, `docs/sync.md` §7). Un saldo derivado de cargos requeriría registrar los cargos de la tarjeta (no está en el spec).
 8e. **Notificaciones del sistema** para presupuestos (Android 13+ pide permiso; requiere `flutter_local_notifications`): descartadas por ahora; se pueden agregar sin cambiar el modelo.

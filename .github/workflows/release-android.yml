@@ -1,0 +1,161 @@
+name: release-android
+
+# Construye y VERIFICA el APK/AAB de release (docs/release-android.md).
+#  - Manual (workflow_dispatch) con dry_run = false: firma con TUS secretos y deja el APK/AAB como artefactos.
+#  - Manual con dry_run = true, o en un PR que toque Android/este flujo: firma con una llave desechable. Sirve para
+#    comprobar que la cadena de build funciona; el resultado NO es distribuible.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Prueba con llave desechable (no usa tus secretos; el resultado NO se distribuye)"
+        type: boolean
+        default: true
+      api_base_url:
+        description: "URL HTTPS de la API (si se omite, se usa la variable de repositorio API_BASE_URL)"
+        type: string
+        required: false
+  pull_request:
+    paths:
+      - "mobile/android/**"
+      - "mobile/pubspec.yaml"
+      - "mobile/lib/core/config/**"
+      - ".github/workflows/release-android.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Todo lo que no es un disparo manual con dry_run = false es una prueba.
+      DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.7
+          channel: stable
+          cache: true
+
+      - name: Parámetros
+        id: params
+        env:
+          INPUT_URL: ${{ inputs.api_base_url }}
+          VAR_URL: ${{ vars.API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = "true" ]; then
+            url="${INPUT_URL:-${VAR_URL:-https://api.ejemplo.invalid}}"
+          else
+            url="${INPUT_URL:-${VAR_URL:-}}"
+          fi
+          case "$url" in
+            https://?*) ;;
+            *) echo "::error::API_BASE_URL debe empezar con https:// (define la variable de repositorio API_BASE_URL o el parámetro api_base_url)"; exit 1 ;;
+          esac
+          echo "api_url=$url" >> "$GITHUB_OUTPUT"
+          echo "api_host=$(printf '%s' "$url" | sed -E 's#^https://([^/:]+).*#\1#')" >> "$GITHUB_OUTPUT"
+
+      - name: Llave de firma
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          ks="$RUNNER_TEMP/release.jks"
+          if [ "$DRY_RUN" = "true" ]; then
+            pass="$(openssl rand -hex 16)"
+            echo "::add-mask::$pass"
+            keytool -genkeypair -keystore "$ks" -storetype PKCS12 -alias dryrun -keyalg RSA -keysize 2048 -validity 2 \
+              -storepass "$pass" -keypass "$pass" -dname "CN=Prueba desechable, O=Finanzas Personales, C=MX"
+            KS_PASS="$pass"; KEY_ALIAS=dryrun; KEY_PASS="$pass"
+          else
+            for name in KS_B64 KS_PASS KEY_ALIAS KEY_PASS; do
+              [ -n "${!name:-}" ] || { echo "::error::Falta un secreto de firma ($name). Ver docs/release-android.md"; exit 1; }
+            done
+            printf '%s' "$KS_B64" | base64 -d > "$ks"
+          fi
+          {
+            echo "ANDROID_KEYSTORE_FILE=$ks"
+            echo "ANDROID_KEYSTORE_PASSWORD=$KS_PASS"
+            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
+            echo "ANDROID_KEY_PASSWORD=$KEY_PASS"
+          } >> "$GITHUB_ENV"
+
+      - name: Dependencias y código generado
+        working-directory: mobile
+        run: |
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Compilar APK y AAB de release
+        working-directory: mobile
+        env:
+          API_URL: ${{ steps.params.outputs.api_url }}
+        run: |
+          set -euo pipefail
+          # versionCode creciente: Android no deja instalar (ni Play subir) una versión con código menor o igual.
+          flutter build apk --release --dart-define=API_BASE_URL="$API_URL" --build-number="${{ github.run_number }}"
+          flutter build appbundle --release --dart-define=API_BASE_URL="$API_URL" --build-number="${{ github.run_number }}"
+
+      - name: Verificar firma, identificador y URL de la API
+        working-directory: mobile
+        env:
+          API_HOST: ${{ steps.params.outputs.api_host }}
+          EXPECTED_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          apk=build/app/outputs/flutter-apk/app-release.apk
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+
+          "$tools/apksigner" verify --verbose --print-certs "$apk" | tee "$RUNNER_TEMP/cert.txt"
+          if grep -qi "CN=Android Debug" "$RUNNER_TEMP/cert.txt"; then
+            echo "::error::El APK quedó firmado con la llave de depuración"; exit 1
+          fi
+          sha="$(grep -m1 'certificate SHA-256 digest' "$RUNNER_TEMP/cert.txt" | awk '{print $NF}')"
+          if [ "$DRY_RUN" != "true" ] && [ -n "${EXPECTED_SHA256:-}" ]; then
+            if [ "$(printf '%s' "$sha" | tr 'A-F' 'a-f')" != "$(printf '%s' "$EXPECTED_SHA256" | tr -d ':' | tr 'A-F' 'a-f')" ]; then
+              echo "::error::El certificado ($sha) no coincide con ANDROID_CERT_SHA256: ¿llave equivocada?"; exit 1
+            fi
+          fi
+
+          "$tools/aapt2" dump badging "$apk" | grep -E "^package:" | tee "$RUNNER_TEMP/badging.txt"
+          grep -q "name='mx.finanzaspersonales.finanzas_personales'" "$RUNNER_TEMP/badging.txt" \
+            || { echo "::error::applicationId inesperado"; exit 1; }
+
+          # La URL de la API quedó compilada y no la del emulador.
+          # (a un archivo y luego grep: un grep -q que corta la tubería haría fallar a pipefail con SIGPIPE)
+          unzip -p "$apk" 'lib/*/libapp.so' | strings > "$RUNNER_TEMP/libapp.txt"
+          grep -q -F "$API_HOST" "$RUNNER_TEMP/libapp.txt" || { echo "::error::No encontré $API_HOST dentro del APK"; exit 1; }
+          if grep -q -F "10.0.2.2" "$RUNNER_TEMP/libapp.txt"; then echo "::warning::El APK menciona 10.0.2.2 (dirección del emulador)"; fi
+
+          {
+            echo "## Release Android ($( [ "$DRY_RUN" = "true" ] && echo 'PRUEBA, no distribuir' || echo 'firmado con tu llave' ))"
+            echo ""
+            echo "- Paquete: \`$(cat "$RUNNER_TEMP/badging.txt")\`"
+            echo "- Certificado SHA-256: \`$sha\`"
+            echo "- API: \`$API_HOST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DRY_RUN == 'true' && 'finanzas-release-PRUEBA-no-distribuir' || 'finanzas-release' }}
+          path: |
+            mobile/build/app/outputs/flutter-apk/app-release.apk
+            mobile/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: ${{ env.DRY_RUN == 'true' && 3 || 30 }}
+
+      - name: Borrar la llave del ejecutor
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"

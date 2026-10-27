@@ -35,6 +35,10 @@ cd mobile && E2E_API_URL=http://localhost:3111 DATABASE_URL=postgres://... flutt
 `DATABASE_URL` (o `E2E_DATABASE_URL`) es la base del servidor: la prueba de la purga corre `npm run purge` con un límite de ~0.1 s para
 forzar un `410 resync_required` real; sin ella esa prueba se omite.
 
+**Release de Android** (APK/AAB firmado, llave, secretos y servidor): [`docs/release-android.md`](../docs/release-android.md). Un release
+exige `--dart-define=API_BASE_URL=https://…` (si no, la app abre en «App mal configurada») y una llave de firma propia (si no, el
+build falla en vez de firmar con la de depuración).
+
 El CI (`.github/workflows/ci.yml`) corre todo lo anterior y, en el trabajo `mobile-demo`, publica como artefactos un **APK de
 depuración** y la **web** en modo demo.
 
