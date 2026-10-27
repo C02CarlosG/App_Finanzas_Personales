@@ -1,8 +1,9 @@
 class AppError extends Error {
-  constructor(status, message, code) {
+  constructor(status, message, code, { retryAfter } = {}) {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryAfter = retryAfter; // segundos; se envía como encabezado Retry-After
   }
 }
 

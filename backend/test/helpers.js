@@ -12,6 +12,7 @@ const request = require('supertest');
 const app = require('../src/app');
 const { pool } = require('../src/db/pool');
 const { migrate } = require('../src/db/migrate');
+const limiters = require('../src/services/attemptLimiter');
 
 const api = () => request(app);
 
@@ -19,6 +20,7 @@ async function setup() {
   await migrate();
 }
 async function reset() {
+  limiters.resetAll();
   await pool.query('TRUNCATE users CASCADE');
 }
 async function teardown() {
