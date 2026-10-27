@@ -30,6 +30,20 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 final _baseUrl = Platform.environment['E2E_API_URL'];
+// Para forzar una purga real de tombstones hace falta la BD del servidor (CI y desarrollo la tienen en DATABASE_URL).
+final _purgeDb = Platform.environment['E2E_DATABASE_URL'] ?? Platform.environment['DATABASE_URL'];
+
+/// Corre `npm run purge` con un límite de ~86 ms: todo lo borrado hace más que eso se elimina de verdad.
+Future<void> purgeServerTombstones(String databaseUrl) async {
+  await Future<void>.delayed(const Duration(milliseconds: 300));
+  final result = await Process.run(
+    'node',
+    ['src/sync/purge.js'],
+    workingDirectory: '../backend',
+    environment: {'DATABASE_URL': databaseUrl, 'TOMBSTONE_RETENTION_DAYS': '0.000001'},
+  );
+  expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+}
 
 class Device {
   Device(this.name, String baseUrl, String Function() token)
@@ -343,5 +357,44 @@ void main() {
     expect(await a.db.select(a.db.syncOutbox).get(), isEmpty);
     await b.sync();
     expect((await b.db.watchBudgets('2026-10-01', '2026-11-01').first).map((x) => x.categoryId), [food]);
+  });
+
+  test('Paso 7: un dispositivo que se quedó atrás de una purga recibe 410, se re-descarga y conserva lo pendiente', () async {
+    final dbUrl = _purgeDb;
+    if (dbUrl == null) {
+      markTestSkipped('Defina DATABASE_URL (o E2E_DATABASE_URL) para forzar la purga del servidor');
+      return;
+    }
+    await a.sync();
+    final accounts = AccountsRepository(a.store);
+    final gone = await accounts.createCashAccount(name: 'Temporal');
+    final keep = await accounts.createCashAccount(name: 'Se queda', initialBalance: Money.parse('500'));
+    await a.sync();
+    await b.sync(); // B ya tiene ambas cuentas y su cursor
+    expect(await b.db.select(b.db.accounts).get(), hasLength(2));
+
+    // B queda sin conexión: edita una cuenta y crea otra, sin sincronizar.
+    final bAccounts = AccountsRepository(b.store);
+    await bAccounts.update(keep, name: 'Se queda (editada en B)', initialBalance: Money.parse('500'));
+    final created = await bAccounts.createCashAccount(name: 'Creada en B', initialBalance: Money.parse('10'));
+
+    // Mientras tanto A borra una cuenta y el servidor purga el tombstone.
+    await accounts.delete(gone);
+    await a.sync();
+    await purgeServerTombstones(dbUrl);
+
+    final report = await b.sync();
+    expect(report.resynced, isTrue, reason: 'el servidor respondió 410 y B volvió a descargar todo');
+    expect(await b.db.select(b.db.syncOutbox).get(), isEmpty, reason: 'lo pendiente de B llegó al servidor');
+    final names = (await b.db.select(b.db.accounts).get()).where((x) => x.deletedAt == null).map((x) => x.name).toSet();
+    expect(names, containsAll(['Se queda (editada en B)', 'Creada en B']));
+    expect(names, isNot(contains('Temporal')), reason: 'la cuenta purgada ya no existe en B');
+    expect((await b.db.select(b.db.accounts).get()).any((x) => x.id == created), isTrue);
+
+    // A converge con B y el siguiente ciclo de ambos ya no pide resync.
+    await a.sync();
+    expect((await a.db.select(a.db.accounts).get()).where((x) => x.deletedAt == null).map((x) => x.name).toSet(), names);
+    expect((await b.sync()).resynced, isFalse);
+    expect((await a.sync()).resynced, isFalse);
   });
 }

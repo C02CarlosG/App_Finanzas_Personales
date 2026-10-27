@@ -5,12 +5,14 @@ import 'config/app_config.dart';
 import 'db/app_database.dart';
 import 'db/local_store.dart';
 import 'network/api_client.dart';
+import 'network/api_exception.dart';
 import 'storage/session_store.dart';
 import 'sync/stamp.dart';
 import 'sync/sync_api.dart';
 import 'sync/sync_signal.dart';
 import 'sync/sync_engine.dart';
 import '../features/auth/data/auth_repository.dart';
+import '../features/profile/data/profile_repository.dart';
 
 final sessionStoreProvider = Provider<SessionStore>((ref) => SecureSessionStore());
 
@@ -30,6 +32,8 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 });
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) => AuthRepository(ref.watch(apiClientProvider)));
+
+final profileRepositoryProvider = Provider<ProfileRepository>((ref) => ProfileRepository(ref.watch(apiClientProvider)));
 
 /// Sesión actual: `null` = sin iniciar sesión.
 final authControllerProvider = AsyncNotifierProvider<AuthController, Session?>(AuthController.new);
@@ -61,14 +65,65 @@ class AuthController extends AsyncNotifier<Session?> {
     await ref.read(sessionStoreProvider).clear();
     state = const AsyncData(null);
   }
+
+  // ---- Perfil: las acciones que cambian la cuenta en el servidor propagan el error a la pantalla.
+
+  Future<void> updateName(String name) async => _applyProfile(await ref.read(profileRepositoryProvider).updateName(name));
+
+  Future<void> changeEmail({required String email, required String password}) async =>
+      _applyProfile(await ref.read(profileRepositoryProvider).changeEmail(email: email, password: password));
+
+  /// Revoca los demás dispositivos y deja en este el token nuevo (el sync continúa sin volver a iniciar sesión).
+  Future<void> changePassword({required String current, required String next}) async =>
+      _applyProfile(await ref.read(profileRepositoryProvider).changePassword(current: current, next: next));
+
+  /// Pone al día nombre, correo y plan con lo que diga el servidor (p. ej. editados desde otro dispositivo).
+  /// Es un ajuste de cortesía: sin conexión o con sesión vencida se queda lo guardado.
+  Future<void> refreshProfile() async {
+    try {
+      await _applyProfile(await ref.read(profileRepositoryProvider).fetch());
+    } on ApiException {
+      // offline-first: se confía en la sesión guardada
+    }
+  }
+
+  /// El servidor revoca todos los tokens; solo si responde se cierra la sesión local.
+  Future<void> logoutEverywhere() async {
+    await ref.read(profileRepositoryProvider).logoutEverywhere();
+    await logout();
+  }
+
+  /// Borra la cuenta en el servidor y, solo si lo logró, vacía la base local de este dispositivo.
+  Future<void> deleteAccount(String password) async {
+    await ref.read(profileRepositoryProvider).deleteAccount(password);
+    try {
+      await ref.read(databaseProvider)?.wipe();
+    } catch (_) {
+      // La cuenta ya no existe en el servidor: aunque la base local no se pueda vaciar (disco lleno, archivo
+      // bloqueado) hay que salir; ese archivo queda huérfano y nadie lo vuelve a abrir (el id de usuario no se reutiliza).
+    }
+    await logout();
+  }
+
+  Future<void> _applyProfile(ProfileUpdate update) async {
+    final current = state.value;
+    if (current == null) return;
+    final next = current.copyWith(token: update.token, email: update.email, name: update.name, plan: update.plan);
+    await ref.read(sessionStoreProvider).write(next);
+    state = AsyncData(next);
+  }
 }
+
+/// Cómo se abre la base de un usuario (las pruebas la sustituyen por una en memoria).
+final databaseOpenerProvider = Provider<AppDatabase Function(String userId)>((ref) => AppDatabase.forUser);
 
 /// Base local del usuario con sesión; se cierra al cambiar de usuario o cerrar sesión.
 /// `null` sin sesión. En modo demo `main()` la reemplaza por una base de ejemplo ya sembrada.
 final databaseProvider = Provider<AppDatabase?>((ref) {
-  final session = ref.watch(authControllerProvider.select((s) => s.value));
-  if (session == null || AppConfig.demoMode) return null;
-  final db = AppDatabase.forUser(session.userId);
+  // Solo el id: cambiar nombre, correo o token no debe cerrar y reabrir la base.
+  final userId = ref.watch(authControllerProvider.select((s) => s.value?.userId));
+  if (userId == null || AppConfig.demoMode) return null;
+  final db = ref.watch(databaseOpenerProvider)(userId);
   ref.onDispose(db.close);
   return db;
 });

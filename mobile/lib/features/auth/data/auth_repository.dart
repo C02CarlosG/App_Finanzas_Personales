@@ -27,6 +27,7 @@ class AuthRepository {
       userId: user['id'] as String,
       email: user['email'] as String,
       name: user['name'] as String,
+      plan: (user['plan'] as String?) ?? 'free',
     );
   }
 }

@@ -135,9 +135,12 @@ class TransactionFilter {
 }
 
 class Totals {
-  const Totals({required this.income, required this.expense});
+  const Totals({required this.income, required this.expense, this.count = 0});
   final Money income;
   final Money expense;
+
+  /// Cuántos movimientos cumplen el filtro (la vista previa de una exportación no necesita cargarlos).
+  final int count;
   Money get net => income - expense;
 }
 
@@ -227,7 +230,7 @@ extension AppQueries on AppDatabase {
     return (clauses.join(' AND '), vars);
   }
 
-  Stream<List<TransactionView>> watchTransactions(TransactionFilter f) {
+  Selectable<QueryRow> _transactionRows(TransactionFilter f) {
     final (where, vars) = _where(f);
     return customSelect(
       '''
@@ -241,8 +244,15 @@ extension AppQueries on AppDatabase {
       ${f.limit != null ? 'LIMIT ${f.limit}' : ''}''',
       variables: vars,
       readsFrom: _allTables,
-    ).watch().map((rows) => [for (final r in rows) _toTransactionView(r)]);
+    );
   }
+
+  Stream<List<TransactionView>> watchTransactions(TransactionFilter f) =>
+      _transactionRows(f).watch().map((rows) => [for (final r in rows) _toTransactionView(r)]);
+
+  /// Lectura única (exportaciones): del más reciente al más antiguo, igual que el listado.
+  Future<List<TransactionView>> transactionsFor(TransactionFilter f) async =>
+      [for (final r in await _transactionRows(f).get()) _toTransactionView(r)];
 
   Future<TransactionView?> findTransaction(String id) async {
     final rows = await customSelect(
@@ -283,12 +293,13 @@ extension AppQueries on AppDatabase {
     return customSelect(
       '''
       SELECT COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount_cents END), 0) AS income,
-             COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents END), 0) AS expense
+             COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents END), 0) AS expense,
+             COUNT(t.id) AS n
       $_txJoins
       WHERE $where''',
       variables: vars,
       readsFrom: _allTables,
-    ).watchSingle().map((r) => Totals(income: Money(r.read<int>('income')), expense: Money(r.read<int>('expense'))));
+    ).watchSingle().map((r) => Totals(income: Money(r.read<int>('income')), expense: Money(r.read<int>('expense')), count: r.read<int>('n')));
   }
 
   /// Cambios con error o bloqueados (no los que solo esperan turno).

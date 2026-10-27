@@ -9,6 +9,7 @@ class Session {
     required this.userId,
     required this.email,
     required this.name,
+    this.plan = 'free',
   });
 
   final String token;
@@ -16,13 +17,25 @@ class Session {
   final String email;
   final String name;
 
-  Map<String, dynamic> toJson() => {'token': token, 'user_id': userId, 'email': email, 'name': name};
+  /// Plan de suscripción (`free` / `premium`) tal como lo informó el servidor por última vez.
+  final String plan;
+
+  Session copyWith({String? token, String? email, String? name, String? plan}) => Session(
+        token: token ?? this.token,
+        userId: userId,
+        email: email ?? this.email,
+        name: name ?? this.name,
+        plan: plan ?? this.plan,
+      );
+
+  Map<String, dynamic> toJson() => {'token': token, 'user_id': userId, 'email': email, 'name': name, 'plan': plan};
 
   factory Session.fromJson(Map<String, dynamic> json) => Session(
         token: json['token'] as String,
         userId: json['user_id'] as String,
         email: json['email'] as String,
         name: json['name'] as String,
+        plan: (json['plan'] as String?) ?? 'free', // sesiones guardadas por versiones anteriores no lo traen
       );
 }
 

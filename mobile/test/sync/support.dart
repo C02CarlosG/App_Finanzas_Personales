@@ -13,7 +13,8 @@ typedef PushHandler = Future<Map<String, dynamic>> Function(List<Map<String, dyn
 class FakeSyncApi implements SyncApi {
   final pushes = <List<Map<String, dynamic>>>[];
   final pullCursors = <String?>[];
-  final pullQueue = <Map<String, dynamic>>[];
+  /// Páginas (`Map`) o errores (`Exception`) que se devuelven en orden; vacía = página vacía.
+  final pullQueue = <Object>[];
   PushHandler? onPush;
 
   @override
@@ -28,7 +29,9 @@ class FakeSyncApi implements SyncApi {
   Future<Map<String, dynamic>> pull({String? cursor, int limit = 500}) async {
     pullCursors.add(cursor);
     if (pullQueue.isEmpty) return pullPage();
-    return pullQueue.removeAt(0);
+    final next = pullQueue.removeAt(0);
+    if (next is Exception) throw next;
+    return next as Map<String, dynamic>;
   }
 }
 

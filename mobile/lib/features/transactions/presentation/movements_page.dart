@@ -45,6 +45,14 @@ class _MovementsPageState extends State<MovementsPage> {
         return Scaffold(
           appBar: AppBar(
             title: const Text('Movimientos'),
+            actions: [
+              IconButton(
+                key: const Key('exportar-movimientos'),
+                tooltip: 'Exportar a Excel o PDF',
+                icon: const Icon(Icons.ios_share),
+                onPressed: () => context.push(AppRoutes.export),
+              ),
+            ],
             bottom: const TabBar(tabs: [Tab(text: 'Ingresos'), Tab(text: 'Gastos')]),
           ),
           floatingActionButton: FloatingActionButton.extended(

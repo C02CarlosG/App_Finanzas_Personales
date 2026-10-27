@@ -3,11 +3,12 @@
 App de Finanzas Personales. **Offline-first**: la interfaz lee y escribe siempre en SQLite local y el motor de sincronización
 (`lib/core/sync`) la reconcilia con la API según [`docs/sync.md`](../docs/sync.md).
 
-Estado: **Paso 6 (Fase 3 en móvil)**. Login/registro, Bancos (selector visual, cuentas de banco y efectivo) con la pestaña
+Estado: **Paso 7 (Fase 4 en móvil)**. Login/registro, Bancos (selector visual, cuentas de banco y efectivo) con la pestaña
 **Préstamos**, Categorías, ingreso/gasto, Inicio con datos reales y "pagos próximos", Movimientos (filtros, búsqueda, total del
 mes) con las secciones de Gastos **Suscripciones** y **Tarjetas**, **Reportes** (ingresos contra gastos, pastel por categoría y
-tendencia de 3 meses) con **Presupuestos** y avisos dentro de la app, sync automático y sesión expirada. Perfil completo y
-exportación llegan en el Paso 7.
+tendencia de 3 meses) con **Presupuestos** y avisos dentro de la app, sync automático y sesión expirada. Paso 7: **Perfil**
+(nombre, correo, contraseña, plan, cerrar sesión en todos los dispositivos, eliminar cuenta), **exportación a Excel y PDF** hecha en el
+teléfono y sync robusto (el servidor purga tombstones a los 180 días y el cliente atiende `410 resync_required`).
 
 ## Comandos
 
@@ -28,8 +29,11 @@ flutter run --dart-define=DEMO_MODE=true                       # SOLO desarrollo
 
 ```bash
 cd backend && SYNC_SAFETY_LAG_MS=0 PORT=3111 JWT_SECRET=x DATABASE_URL=postgres://... npm run migrate && node src/server.js
-cd mobile && E2E_API_URL=http://localhost:3111 flutter test test/e2e
+cd mobile && E2E_API_URL=http://localhost:3111 DATABASE_URL=postgres://... flutter test test/e2e
 ```
+
+`DATABASE_URL` (o `E2E_DATABASE_URL`) es la base del servidor: la prueba de la purga corre `npm run purge` con un límite de ~0.1 s para
+forzar un `410 resync_required` real; sin ella esa prueba se omite.
 
 El CI (`.github/workflows/ci.yml`) corre todo lo anterior y, en el trabajo `mobile-demo`, publica como artefactos un **APK de
 depuración** y la **web** en modo demo.
@@ -89,6 +93,9 @@ rechaza se revisan en **Problemas de sincronización** (editar o eliminar).
 | `flutter_secure_storage` | Guardar el JWT cifrado en el dispositivo |
 | `uuid` | UUID v4 generados en el dispositivo (ids de registros offline) |
 | `flutter_localizations` (SDK) | Selector de fecha y textos de Material en español |
+| `excel` | Escribir el `.xlsx` de la exportación (hojas Resumen y Movimientos, importes como números) en el dispositivo |
+| `pdf` | Generar el PDF de la exportación en el dispositivo (Helvetica incluida; sin red ni descarga de fuentes) |
+| `share_plus` | Hoja de compartir del sistema para entregar el archivo (correo, WhatsApp, Drive…); en web cae a una descarga |
 | `fake_async` (dev) | Probar temporizadores del sync (debounce, reintentos) con reloj simulado |
 
 ## Pendiente (siguientes pasos)

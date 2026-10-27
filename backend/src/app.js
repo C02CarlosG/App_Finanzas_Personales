@@ -1,10 +1,12 @@
 const express = require('express');
+const config = require('./config');
 const auth = require('./middleware/auth');
 const errorHandler = require('./middleware/errorHandler');
 const { notFound } = require('./utils/errors');
 
 const app = express();
 app.disable('x-powered-by');
+if (config.trustProxy) app.set('trust proxy', config.trustProxy);
 app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));

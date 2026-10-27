@@ -173,6 +173,7 @@ GET /sync/pull?cursor=<next_cursor anterior>&limit=500
 - Un registro borrado llega con `deleted_at` no nulo (tombstone) y el cliente lo marca borrado.
 - El cursor es **por tabla** (cada una avanza con su propia clave `(updated_at µs, id)`), dentro de un cursor opaco único. Una página se lee en una sola foto consistente (`REPEATABLE READ`).
 - Un cursor mal formado o con fechas imposibles (30 de febrero, mes 13…) → `400 invalid_cursor`.
+- **`410 resync_required`** (`{ "error": "…", "code": "resync_required" }`): el servidor ya purgó tombstones que este cursor no llegó a ver (§7). El cliente debe olvidar el cursor y volver a descargar todo (§6, paso 2). El cursor es opaco y mide hasta ~1.8 KB; el límite de la consulta es 4096 caracteres.
 
 ### Margen de seguridad (`SYNC_SAFETY_LAG_MS`, default 5000)
 
@@ -202,6 +203,7 @@ GET /sync/pull?cursor=<next_cursor anterior>&limit=500
    - Si hay un **borrado local pendiente** en la outbox → conservarlo, sin importar fechas (el tombstone gana a cualquier edición).
    - Si hay una **edición** local pendiente con `client_updated_at` **mayor** que el de la fila recibida → conservar lo local (ganará al subirse).
    - En otro caso → sobrescribir la fila local con la del servidor y quitar su renglón de la outbox.
+   - **`410 resync_required`** (en cualquier página): el cliente borra, en **una sola transacción local**, las filas ya sincronizadas (`updated_at` no nulo) que **no** tienen renglón en la outbox, olvida el cursor y repite el pull desde cero. Se conservan las filas con cambios pendientes y las que nunca se enviaron, así que no se pierde trabajo; lo que el servidor ya no tiene (tombstones purgados) simplemente no vuelve. Como el push va antes que el pull, normalmente la outbox ya está vacía en ese momento. Se aceptan hasta 2 reinicios por ciclo; un tercer 410 se propaga como error y el siguiente ciclo lo reintenta. Si la app se cierra a medias, el cursor ya está olvidado y se reanuda como sincronización inicial.
 3. Si algo falla a mitad, se repite desde el último cursor guardado: es seguro porque aplicar una fila es idempotente. Mientras la sincronización inicial no termine, la UI puede mostrar datos parciales (una transacción cuyo padre aún no llegó); conviene indicar "sincronizando".
 
 Ambos lados aplican la misma regla de LWW, por lo que los dispositivos convergen a la misma versión sin importar el orden en que sincronicen. Una prueba del backend verifica la convergencia respecto al orden de llegada al servidor; el algoritmo del cliente (pull con ediciones pendientes) se probará cuando exista el cliente (Paso 3/4).
@@ -209,7 +211,13 @@ Ambos lados aplican la misma regla de LWW, por lo que los dispositivos convergen
 ## 7. Garantías y límites conocidos
 
 - **LWW por registro pierde cambios concurrentes de campos distintos** (si A cambia el monto y B la descripción, gana uno completo). Es la decisión aceptada; si duele en la práctica, el siguiente paso sería resolución por campo.
-- **Tombstones nunca se purgan todavía.** A futuro (Fase 4) se podrá purgar después de N días y responder `410 resync_required` a cursores más viejos para forzar una sincronización inicial.
+- **Purga de tombstones (Paso 7).** Un registro borrado se conserva `TOMBSTONE_RETENTION_DAYS` días (180 por defecto; `0` = nunca purgar) contados desde su último cambio; pasado ese tiempo el servidor lo elimina de verdad, por lotes, una vez al día (también con `npm run purge`; un candado de PostgreSQL evita que dos instancias purguen a la vez). Reglas:
+  - Orden hijos → padres, y **un tombstone no se purga mientras otra fila (viva o tombstone más nuevo) lo referencie** por clave foránea (p. ej. una cuenta borrada espera a que se purguen sus transacciones borradas); se purgará en una corrida posterior.
+  - Por cada usuario y tabla se guarda `sync_purge_watermarks`: la posición `(updated_at, id)` del tombstone más nuevo ya purgado, que nunca retrocede y se actualiza en la misma sentencia que el borrado.
+  - `GET /sync/pull` responde `410 resync_required` si, para alguna tabla, esa marca está **por delante de la posición del cursor**: significa que se purgó algo que el dispositivo no vio. Un dispositivo que sincroniza con regularidad ve cada tombstone mucho antes de su purga y nunca recibe 410; uno que pasa más de `TOMBSTONE_RETENTION_DAYS` sin conectarse sí.
+  - Una **sincronización inicial** no echa de menos lo ya purgado: el cursor lleva `_marks` (la marca de purga vigente al empezar) y se compara contra `max(posición, marca)`. Sin esto, paginar una tabla cuyas filas vivas son más viejas que la marca daría 410 en bucle.
+  - Si pasa más de ese tiempo sin conexión **y** el dispositivo tiene cambios pendientes sobre un registro cuyo tombstone ya se purgó, el push lo trata como alta nueva y lo "resucita": se pierde la regla «el tombstone gana» solo en ese caso extremo (el usuario sí lo editó después de borrarse en otro dispositivo).
+  - Borrar la cuenta de usuario elimina también sus marcas.
 - **Sesión expirada (401):** el JWT dura 7 días y no hay endpoint de refresco. Un 401 en `push`/`pull` significa sesión vencida: el cliente debe **conservar la base local y la outbox**, avisar y pedir iniciar sesión de nuevo (mismo usuario) para retomar la sincronización, sin cerrar sesión a la fuerza ni descartar datos. Se implementa en el Paso 4, junto con el disparo automático del sync.
 - **Idempotencia con relojes muy adelantados:** si el reloj del dispositivo va más de 5 min adelantado y se pierde la respuesta de un push, el reintento se acota otra vez a una hora de servidor *más nueva* y podría pisar una edición intermedia de otro dispositivo. Se mitiga con la corrección de reloj de §3; el caso residual es raro y de bajo impacto.
 - **Borrar un id desconocido no deja tombstone** (no hay datos con qué crear la fila). Un alta que llegue *después* de ese borrado lo resucitaría; el candado de un solo ciclo de sync en el cliente (§6) lo evita.
@@ -221,4 +229,12 @@ Ambos lados aplican la misma regla de LWW, por lo que los dispositivos convergen
 - **Fase 2, préstamos:** si dos dispositivos abonan el último tramo antes de sincronizar, el pendiente derivado queda negativo; la app lo muestra como 0 y el préstamo como pagado. Borrar un préstamo o una tarjeta elimina su historial pero **conserva** los ingresos/gastos que generó (el dinero ya se movió); esas transacciones pasan a ser editables como cualquier otra.
 - **Sin cifrado ni firma de lotes** más allá de TLS + JWT.
 - **Un solo `user_id` por token:** la compartición de cuentas entre usuarios queda fuera de alcance.
-- El campo `plan` de usuario (`free`/`premium`) ya existe para limitar sync/dispositivos en el modelo de suscripción; hoy no se aplica ninguna restricción.
+- El campo `plan` de usuario (`free`/`premium`) ya existe para limitar sync/dispositivos en el modelo de suscripción; hoy no se aplica ninguna restricción (ver §8).
+
+## 8. Sesiones, límites y operación (Paso 7)
+
+- **Revocación de sesiones.** El JWT lleva `ver` (= `users.token_version`) y el middleware de auth, además de la firma, comprueba que el usuario exista y que `ver` coincida: cambiar la contraseña y `POST /auth/logout-all` incrementan la versión y dejan sin efecto todos los tokens emitidos (a cambio, una lectura por clave primaria en cada petición). Para el cliente es un `401`: el dispositivo conserva su base local y su outbox (§7) y pide iniciar sesión otra vez. Las confirmaciones de contraseña incorrectas responden **403 `invalid_password`** precisamente para no confundirse con ese 401.
+- **Límite de intentos** (`LOGIN_MAX_ATTEMPTS`, 5 por `LOGIN_WINDOW_MS`, 15 min): login por correo+IP (y 10× ese tope por IP), y las confirmaciones de contraseña (cambiar clave/correo, borrar cuenta) por usuario. Respuesta `429 too_many_attempts` con `Retry-After`; se revisa antes de gastar bcrypt. **Es memoria de un solo proceso**: con varias instancias del API cada una lleva su cuenta; antes de escalar hay que moverlo a Redis o a la BD. Detrás de un proxy hay que definir `TRUST_PROXY`, o todos los clientes compartirían la IP del proxy.
+- **Borrar cuenta** (`POST /auth/delete-account`) elimina de verdad al usuario y todas sus filas (no deja tombstones): una prueba recorre las tablas con `user_id` para que una tabla nueva no se quede sin borrar.
+- **Planes.** `services/plans.js` es el único lugar donde se decide qué incluye cada plan (`entitlementsFor(plan)`, expuesto como `user.entitlements`). Hoy `free` y `premium` incluyen lo mismo: no hay límites ni cobro.
+- **Recuperar contraseña por correo** queda fuera: no hay servicio de correo. Quien la olvide no puede entrar (pendiente, ver PROGRESS.md).
