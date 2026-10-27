@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cartera sobre el verde de la app. Lienzo adaptativo de 108 dp: lo importante queda en los 66 dp centrales. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- cuerpo de la cartera -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M33,38 H75 A6,6 0 0 1 81,44 V68 A6,6 0 0 1 75,74 H33 A6,6 0 0 1 27,68 V44 A6,6 0 0 1 33,38 Z" />
+    <!-- solapa -->
+    <path
+        android:fillColor="#CDEBDD"
+        android:pathData="M27,44 A6,6 0 0 1 33,38 H75 A6,6 0 0 1 81,44 V48 H27 Z" />
+    <!-- lengüeta del broche -->
+    <path
+        android:fillColor="#1B7F5C"
+        android:pathData="M66,54 H81 V66 H66 A3,3 0 0 1 63,63 V57 A3,3 0 0 1 66,54 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M71.5,60 m-2.4,0 a2.4,2.4 0 1 0 4.8,0 a2.4,2.4 0 1 0 -4.8,0" />
+</vector>

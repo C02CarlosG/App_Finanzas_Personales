@@ -6,10 +6,16 @@ import 'app.dart';
 import 'core/config/app_config.dart';
 import 'core/db/app_database.dart';
 import 'core/demo/demo_seed.dart';
+import 'core/ui/config_error_app.dart';
 import 'core/providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final problem = AppConfig.problem;
+  if (problem != null) {
+    runApp(ConfigErrorApp(message: problem));
+    return;
+  }
   // Modo demo (solo desarrollo): base local con datos de ejemplo y sin servidor ni sync.
   final overrides = <Override>[];
   if (AppConfig.demoMode) {
