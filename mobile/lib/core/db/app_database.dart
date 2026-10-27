@@ -15,6 +15,7 @@ part 'app_database.g.dart';
   Subscriptions,
   CreditCards,
   CreditCardPayments,
+  Budgets,
   SyncOutbox,
   SyncState,
 ])
@@ -33,10 +34,11 @@ class AppDatabase extends _$AppDatabase {
         ),
       );
 
-  /// 2 = Fase 2 (préstamos, suscripciones, tarjetas). Una base creada con la versión 1 recibe las
-  /// tablas nuevas; el cursor del pull no cambia: el servidor completa con cero las tablas que le faltan.
+  /// 2 = Fase 2 (préstamos, suscripciones, tarjetas); 3 = Fase 3 (presupuestos). Una base de una versión
+  /// anterior recibe las tablas nuevas; el cursor del pull no cambia: el servidor completa con cero las tablas
+  /// que le faltan.
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -48,6 +50,9 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(subscriptions);
             await m.createTable(creditCards);
             await m.createTable(creditCardPayments);
+          }
+          if (from < 3) {
+            await m.createTable(budgets);
           }
         },
       );

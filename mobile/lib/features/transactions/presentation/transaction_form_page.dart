@@ -5,11 +5,13 @@ import 'package:go_router/go_router.dart';
 import '../../../core/data/data_providers.dart';
 import '../../../core/data/validation_exception.dart';
 import '../../../core/db/queries.dart';
+import '../../../core/db/queries_fase3.dart';
 import '../../../core/format/dates.dart';
 import '../../../core/money/money.dart';
 import '../../../core/providers.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/ui/money_form_field.dart';
+import '../../budgets/presentation/budgets_tab.dart';
 
 const _createAccountOption = '__crear_cuenta__';
 
@@ -118,7 +120,10 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     });
     final repo = ref.read(transactionsRepositoryProvider);
     final amount = MoneyFormField.read(_amount) ?? Money.zero;
+    final db = ref.read(databaseProvider);
     try {
+      // Presupuesto de la categoría antes y después: se avisa solo si este gasto lo empeora (spec 4.7).
+      final before = (_type == 'expense' && _categoryId != null && db != null) ? await db.budgetProgressFor(_categoryId!, _date) : null;
       if (_editing) {
         await repo.update(widget.transactionId!,
             type: _type,
@@ -138,8 +143,20 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
             description: _description.text,
             counterparty: needsPerson ? _person.text : null);
       }
+      final after = (before != null && db != null) ? await db.budgetProgressFor(_categoryId!, _date) : null;
+      final alert = budgetAlertFor(before, after);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_type == 'income' ? 'Ingreso guardado' : 'Gasto guardado')));
+      final saved = _type == 'income' ? 'Ingreso guardado' : 'Gasto guardado';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        duration: Duration(seconds: alert == null ? 4 : 7),
+        content: alert == null
+            ? Text(saved)
+            : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(saved),
+                const SizedBox(height: 4),
+                Text(budgetAlertMessage(alert), key: const Key('aviso-presupuesto')),
+              ]),
+      ));
       context.pop();
     } on ValidationException catch (e) {
       if (mounted) setState(() => _error = e.message);

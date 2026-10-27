@@ -1,5 +1,6 @@
 import 'package:finanzas_personales/core/db/queries.dart';
 import 'package:finanzas_personales/core/db/queries_fase2.dart';
+import 'package:finanzas_personales/core/db/queries_fase3.dart';
 import 'package:finanzas_personales/core/demo/demo_seed.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -22,6 +23,7 @@ void main() {
     expect((await h.db.watchLoans().first).length, 2);
     expect((await h.db.watchSubscriptions().first).length, 4);
     expect((await h.db.watchCreditCards().first).length, 2);
+    expect((await h.db.watchBudgets('2000-01-01', '2100-01-01').first).length, 3);
     expect(accounts.every((a) => !a.pending), isTrue);
   });
 

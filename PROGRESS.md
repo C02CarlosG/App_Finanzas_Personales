@@ -1,9 +1,9 @@
 # PROGRESS
 
-_Última actualización: 2026-10-26 (Paso 5)_
+_Última actualización: 2026-10-26 (Paso 6)_
 
 ## Fase y paso actuales
-**Fase 2 – Paso 5 (préstamos, suscripciones y tarjetas) implementado en la rama `paso-5-fase2` (backend + móvil), en revisión.** El PR #3 (Paso 4, con las correcciones de su revisión) ya está en `main`. Siguiente: Paso 6 (reportes, presupuestos, alertas).
+**Fase 3 – Paso 6 (reportes, presupuestos y alertas) implementado en la rama `paso-6-fase3` (backend + móvil), en revisión.** Los PR #3 (Paso 4) y #4 (Paso 5) ya están en `main`. Siguiente: Paso 7 (exportación Excel/PDF, perfil, sync robusto, suscripción de pago).
 
 ## Qué está hecho
 - 2026-10-20 – Monorepo creado: `backend/`, `mobile/`, `docs/`, CI, `.gitignore`, `README.md`.
@@ -22,11 +22,14 @@ _Última actualización: 2026-10-26 (Paso 5)_
 - 2026-10-26 – **Paso 5b (datos móviles)**: tablas drift y adaptadores de sync, `schemaVersion = 2` con migración, `LocalStore` generalizado, repositorios con las reglas de negocio (ver Decisiones) y consultas con totales derivados; 2 e2e con dos dispositivos contra la API real.
 - 2026-10-26 – **Paso 5c (pantallas)**: Bancos → Cuentas | Préstamos (resumen, formulario, detalle con historial, cobrar/pagar, aumentar, marcar pagado, deshacer); Gastos → Generales | Suscripciones | Tarjetas; "Suscripciones y pagos próximos" en Inicio; el movimiento de un abono/pago es de solo lectura en su formulario; datos demo con Fase 2. **220 pruebas Flutter** (9 e2e). Las pruebas cazaron: `ListTile` fallando con texto del sistema grande, hero tags de FAB repetidos y lecturas con flujos de drift que se colgaban dentro de transacciones en pruebas.
 - 2026-10-26 – **Revisión del Paso 5** (revisión de código de alto esfuerzo; 9 hallazgos, verificados contra el código): corregidos 7 — la transacción de un abono/pago podía editarse por sync o `PATCH` (ahora `in_use` si cambia tipo, monto o cuenta); un *aumento* aceptaba `transaction_id`, una transacción podía respaldar dos movimientos y el monto/cuenta no se cotejaban (`amount_mismatch`); "pagado" ahora se **deriva** de los abonos (el estado guardado podía contradecir el saldo tras editar el monto o con dos dispositivos); el proveedor de "movimiento ligado" era de una sola lectura (ahora reactivo); SQL de integridad compartido entre REST y sync (`services/links.js`); validaciones compartidas en el móvil, que además rechazan fechas imposibles como `2026-02-30`; consultas por id sin recorrer todo. El hallazgo del saldo de tarjeta con LWW queda como límite documentado (8c). **78 pruebas de backend, 225 de Flutter**; cada arreglo verificado desactivándolo.
+- 2026-10-26 – **Paso 6a (backend)**: migración 004 (`client_updated_at`, trigger e índice de sync en `budgets`); entidad de sync (categoría de gastos propia y viva e inmutable, límite > 0, umbral entero 1–100); `duplicate_budget` cuando dos dispositivos crean el presupuesto de la misma categoría (entra al segundo pase del lote); una categoría con presupuesto no se borra (sync ni REST). **86 pruebas** de backend (8 nuevas), cada regla verificada desactivándola.
+- 2026-10-26 – **Paso 6b (datos móviles)**: tabla `budgets`, esquema local **v3** con migración, adaptador de sync, `duplicate_budget` (se descarta el local y llega el vigente), `BudgetsRepository` (uno por categoría; guardar de nuevo edita), baja en cascada con la categoría y consultas locales: gastos por categoría (categorías eliminadas → "Sin categoría"), tendencia de 3 meses (con ceros y cruce de año) y avance de presupuestos (ok / aviso / excedido por aritmética de enteros).
+- 2026-10-26 – **Paso 6c (pantallas)**: Reportes → Resumen | Presupuestos con selector de mes; ingresos contra gastos, **pastel** de gastos por categoría (las 6 mayores + "Otras") y **líneas** de tendencia dibujados con `CustomPainter` (sin paquetes; descripción para lectores de pantalla y detalle en texto); presupuestos con barra y estado, alta/edición/baja; **alertas dentro de la app**: aviso al guardar un gasto que cruza el umbral o el límite (solo cuando el estado empeora) y sección "Presupuestos" en Inicio para los que están en aviso o excedidos. **262 pruebas Flutter** (10 e2e con dos dispositivos contra la API real). Las pruebas cazaron: leyenda de la tendencia que se desbordaba con texto al 200 %.
+- 2026-10-26 – **Revisión del Paso 6** (revisión de código de alto esfuerzo; 9 hallazgos, verificados contra el código): corregidos 9 — fusionar una categoría duplicada ahora lleva su presupuesto a la que sobrevive (o lo quita); el tombstone de una categoría quita los presupuestos locales sin enviar (se reintentaban para siempre); `duplicate_budget` no descarta el presupuesto nuevo si la baja del viejo va en otro lote; el aviso solo salta cuando el estado **empeora** (antes también al mejorar); tocar otra vez el aviso de Inicio vuelve a abrir Presupuestos; guardar tolera y limpia presupuestos duplicados de una categoría; el editor muestra umbrales distintos de las opciones (p. ej. 75 %); "Otras" y "Sin categoría" ya no comparten color en el pastel; código muerto fuera. Cada arreglo verificado desactivándolo.
 
 ## Qué sigue (en orden)
-1. Revisar y aprobar el PR del Paso 5.
-2. Paso 6 – Fase 3 (reportes, presupuestos, alertas).
-3. Paso 7 – Fase 4 (exportación, perfil, sync robusto, suscripción de pago).
+1. Revisar y aprobar el PR del Paso 6.
+2. Paso 7 – Fase 4 (exportación, perfil, sync robusto, suscripción de pago).
 
 ## Decisiones tomadas y por qué
 - **Esquema**: `accounts` con `type` (`banco`/`efectivo`); `transactions` con `type` (`income`/`expense`); saldos por vista SQL `account_balances`; UUID + `updated_at` + `deleted_at` en todas las tablas; categorías por usuario sembradas al registrarse; catálogo de 16 bancos mexicanos sembrado.
@@ -41,7 +44,8 @@ _Última actualización: 2026-10-26 (Paso 5)_
 - **Móvil (Paso 4)**: listados en la pantalla **Movimientos** (Inicio → "Ver todos", pestañas Ingresos|Gastos; decisión tuya del 2026-10-21); filtro por **cuenta** (incluye efectivo) en lugar de solo banco; pestaña por defecto Gastos; sync sin `connectivity_plus` (reintento con retroceso); fechas y dinero sin `intl`; selector de fecha es-MX con `flutter_localizations` (SDK); `DEMO_MODE` siembra datos de ejemplo en la base local; logos de bancos: iniciales + color de marca, con `assets/banks/<logo_key>.png` opcional.
 - **Móvil/backend (Paso 5, decisiones tuyas del 2026-10-26)**: los **Préstamos** viven en una pestaña dentro de Bancos; los **abonos y pagos mueven el saldo** de la cuenta que elijas. Cobro a quien te debe = ingreso "Préstamo cobrado" + persona; abono a lo que debes y pago de tarjeta = gasto de sistema ("Pago de préstamo", "Pago de tarjeta"). *Aumentar monto* es el registro de un hecho ya ocurrido: **no** mueve saldos (si prefieres que sí, es un cambio acotado). Marcar como pagado con saldo pendiente registra un último abono en la cuenta elegida.
 - **Préstamo derivado**: `principal` es el monto original y el pendiente se calcula (`original + aumentos − abonos`) para que dos dispositivos converjan; las suscripciones no generan gastos solas (el spec solo pide el recordatorio); el saldo de tarjeta sí se guarda (lo captura el usuario) y cada pago lo reduce. Eliminar un préstamo/tarjeta conserva los ingresos/gastos ya registrados.
-- **Esquema local v2** con migración (ya no se edita la v1 en sitio).
+- **Esquema local v3** con migración (ya no se edita en sitio).
+- **Móvil/backend (Paso 6, decisiones tuyas del 2026-10-26)**: gráficas **dibujadas con `CustomPainter`** (cero paquetes nuevos; funciona igual en Android y web); alertas de presupuesto **solo dentro de la app** (sin notificaciones del sistema); **Presupuestos** como pestaña de Reportes. El avance de un presupuesto no se guarda: se deriva de las transacciones del mes (nunca diverge entre dispositivos). El aviso al guardar un gasto salta solo cuando el estado empeora (ok → aviso → excedido), no en cada gasto.
 - **Pruebas**: BD aparte `*_test` obligatoria; el helper se niega a correr contra otra.
 
 ## Problemas abiertos / dudas para ti
@@ -56,8 +60,9 @@ _Última actualización: 2026-10-26 (Paso 5)_
 7c. **Búsqueda y orden sin acentos** ("cafe" no halla "Café"): pendiente de normalización.
 7d. **Moneda**: sigue fija en MXN (tu decisión pendiente: ¿configurable más adelante?).
 8. **APK**: no se compila localmente (sin Android SDK en el entorno); lo compila el CI (`mobile-demo`, en verde). Es un APK de **depuración en modo demo**; un build de producción necesita firma (keystore) y decidir HTTPS/dominio de la API.
-8b. **Esquema local**: `schemaVersion = 2` con migración v1→v2 (probada). Antes del primer lanzamiento hay que congelar la versión y mantener una migración por cambio.
+8b. **Esquema local**: `schemaVersion = 3` con migraciones v1→v2→v3 (probadas). Antes del primer lanzamiento hay que congelar la versión y mantener una migración por cambio.
 8c. **Saldo de tarjeta con dos dispositivos**: si pagan la misma tarjeta antes de sincronizar, LWW conserva uno de los descuentos (límite aceptado, `docs/sync.md` §7). Un saldo derivado de cargos requeriría registrar los cargos de la tarjeta (no está en el spec).
+8e. **Notificaciones del sistema** para presupuestos (Android 13+ pide permiso; requiere `flutter_local_notifications`): descartadas por ahora; se pueden agregar sin cambiar el modelo.
 8d. **Suscripciones**: solo recordatorio; no crean el gasto al renovarse. ¿Quieres un botón "Registrar cobro" que lo genere?
 9. LWW por registro pierde ediciones concurrentes de campos distintos (aceptado); si molesta, evaluar resolución por campo.
 

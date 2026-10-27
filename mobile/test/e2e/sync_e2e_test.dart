@@ -11,6 +11,7 @@ import 'package:finanzas_personales/core/db/app_database.dart';
 import 'package:finanzas_personales/core/db/local_store.dart';
 import 'package:finanzas_personales/core/db/queries.dart';
 import 'package:finanzas_personales/core/db/queries_fase2.dart';
+import 'package:finanzas_personales/core/db/queries_fase3.dart';
 import 'package:finanzas_personales/core/money/money.dart';
 import 'package:finanzas_personales/core/network/api_client.dart';
 import 'package:finanzas_personales/core/sync/stamp.dart';
@@ -18,6 +19,7 @@ import 'package:finanzas_personales/core/sync/sync_api.dart';
 import 'package:finanzas_personales/core/sync/sync_engine.dart';
 import 'package:finanzas_personales/features/accounts/data/accounts_repository.dart';
 import 'package:finanzas_personales/features/auth/data/auth_repository.dart';
+import 'package:finanzas_personales/features/budgets/data/budgets_repository.dart';
 import 'package:finanzas_personales/features/cards/data/credit_cards_repository.dart';
 import 'package:finanzas_personales/features/loans/data/loans_repository.dart';
 import 'package:finanzas_personales/features/subscriptions/data/subscriptions_repository.dart';
@@ -302,5 +304,44 @@ void main() {
     final row = await (a.db.select(a.db.accounts)..where((t) => t.id.equals(acc))).getSingle();
     expect(row.deletedAt, isNull); // el servidor respondió in_use y la cuenta resucitó
     expect((await a.db.findSubscription((await a.db.watchSubscriptions().first).single.id)), isNotNull);
+  });
+
+  test('Fase 3: un presupuesto de la app lo acepta el backend, B ve el mismo avance y un duplicado se resuelve', () async {
+    await a.sync();
+    await b.sync();
+    final accounts = AccountsRepository(a.store);
+    final acc = await accounts.createCashAccount(name: 'Cartera', initialBalance: Money.parse('5000'));
+    final food = await a.categoryId('Alimentación', 'expense');
+    await a.store.saveTransaction(id: id(), type: 'expense', amount: Money.parse('850'), accountId: acc, categoryId: food, occurredOn: '2026-10-05');
+    await BudgetsRepository(a.store).save(categoryId: food, limit: Money.parse('1000'), alertPercent: 80);
+    await a.sync();
+    expect(await a.db.select(a.db.syncOutbox).get(), isEmpty, reason: 'el servidor aceptó todo');
+
+    await b.sync();
+    final onB = (await b.db.watchBudgets('2026-10-01', '2026-11-01').first).single;
+    expect([onB.categoryName, onB.limit.cents, onB.spent.cents, onB.percent, onB.status], ['Alimentación', 100000, 85000, 85, BudgetStatus.warning]);
+
+    // Los dos dispositivos crean, sin conexión, el presupuesto de una categoría nueva: queda uno solo.
+    final pets = await CategoriesRepository(a.store).create(kind: 'expense', name: 'Mascotas');
+    await a.sync();
+    await b.sync();
+    await BudgetsRepository(a.store).save(categoryId: pets, limit: Money.parse('300'));
+    await BudgetsRepository(b.store).save(categoryId: pets, limit: Money.parse('999'));
+    await a.sync();
+    await b.sync(); // B recibe duplicate_budget: descarta el suyo y adopta el de A
+    await a.sync();
+    for (final d in [a, b]) {
+      final list = (await d.db.watchBudgets('2026-10-01', '2026-11-01').first).where((x) => x.categoryId == pets).toList();
+      expect(list, hasLength(1), reason: d.name);
+      expect(list.single.limit.cents, 30000, reason: d.name);
+      expect(await d.db.select(d.db.syncOutbox).get(), isEmpty, reason: d.name);
+    }
+
+    // Eliminar la categoría se lleva su presupuesto, sin que el servidor la rechace por tenerlo.
+    await CategoriesRepository(a.store).delete(pets);
+    await a.sync();
+    expect(await a.db.select(a.db.syncOutbox).get(), isEmpty);
+    await b.sync();
+    expect((await b.db.watchBudgets('2026-10-01', '2026-11-01').first).map((x) => x.categoryId), [food]);
   });
 }

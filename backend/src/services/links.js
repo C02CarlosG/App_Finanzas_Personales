@@ -21,6 +21,13 @@ async function accountHasLinks(client, userId, accountId) {
   return rowCount > 0;
 }
 
+// ¿Algún presupuesto vivo usa esta categoría?
+async function categoryHasBudget(client, userId, categoryId) {
+  const { rowCount } = await client.query(
+    'SELECT 1 FROM budgets WHERE category_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1', [categoryId, userId]);
+  return rowCount > 0;
+}
+
 // Los campos que mueven saldos de una transacción ligada no cambian: el ingreso/gasto se rehace desde su origen.
 const LOCKED_TX_FIELDS = ['type', 'amount', 'account_id'];
 
@@ -28,4 +35,4 @@ function changesLockedFields(existing, next) {
   return LOCKED_TX_FIELDS.some((f) => (f === 'amount' ? Number(existing[f]) !== Number(next[f]) : existing[f] !== next[f]));
 }
 
-module.exports = { transactionIsBacked, accountHasLinks, changesLockedFields };
+module.exports = { transactionIsBacked, accountHasLinks, categoryHasBudget, changesLockedFields };

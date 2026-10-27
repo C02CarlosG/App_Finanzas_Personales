@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/accounts/data/accounts_repository.dart';
+import '../../features/budgets/data/budgets_repository.dart';
 import '../../features/cards/data/credit_cards_repository.dart';
 import '../../features/categories/data/categories_repository.dart';
 import '../../features/loans/data/loans_repository.dart';
@@ -10,6 +11,7 @@ import '../db/app_database.dart';
 import '../db/local_store.dart';
 import '../db/queries.dart';
 import '../db/queries_fase2.dart';
+import '../db/queries_fase3.dart';
 import '../money/money.dart';
 import '../providers.dart';
 
@@ -82,6 +84,22 @@ final linkedKindProvider = StreamProvider.autoDispose.family<String?, String>(
   (ref, transactionId) => ref.watch(databaseProvider)?.watchLinkedKind(transactionId) ?? const Stream.empty(),
 );
 
+// Fase 3: reportes y presupuestos. Los rangos son `[from, to)` en `YYYY-MM-DD`.
+
+typedef DateRange = ({String from, String to});
+
+final expensesByCategoryProvider = StreamProvider.autoDispose.family<List<CategorySpend>, DateRange>(
+  (ref, r) => ref.watch(databaseProvider)?.watchExpensesByCategory(r.from, r.to) ?? const Stream.empty(),
+);
+
+final monthlyTrendProvider = StreamProvider.autoDispose.family<List<MonthPoint>, ({int year, int month})>(
+  (ref, m) => ref.watch(databaseProvider)?.watchMonthlyTrend(m.year, m.month) ?? const Stream.empty(),
+);
+
+final budgetsProvider = StreamProvider.autoDispose.family<List<BudgetProgress>, DateRange>(
+  (ref, r) => ref.watch(databaseProvider)?.watchBudgets(r.from, r.to) ?? const Stream.empty(),
+);
+
 final pendingCountProvider = StreamProvider<int>(
   (ref) => ref.watch(databaseProvider)?.watchPendingCount() ?? const Stream.empty(),
 );
@@ -114,6 +132,10 @@ final subscriptionsRepositoryProvider = Provider<SubscriptionsRepository>(
 
 final creditCardsRepositoryProvider = Provider<CreditCardsRepository>(
   (ref) => CreditCardsRepository(_store(ref)),
+);
+
+final budgetsRepositoryProvider = Provider<BudgetsRepository>(
+  (ref) => BudgetsRepository(_store(ref)),
 );
 
 LocalStore _store(Ref ref) {

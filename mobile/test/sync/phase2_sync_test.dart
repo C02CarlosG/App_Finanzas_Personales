@@ -187,14 +187,14 @@ void main() {
     expect(await h.db.describeOutboxEntry(byId[subId]!), 'Suscripción: Netflix');
   });
 
-  test('una base de la versión 1 sube a la 2 con las tablas nuevas y conserva sus datos', () async {
+  test('una base de la versión 1 sube con las tablas de las Fases 2 y 3 y conserva sus datos', () async {
     final dir = await Directory.systemTemp.createTemp('migracion_v1');
     addTearDown(() => dir.delete(recursive: true));
     final file = File('${dir.path}/finanzas.sqlite');
 
     var db = AppDatabase(NativeDatabase(file));
     await db.into(db.categories).insert(CategoriesCompanion.insert(id: 'c1', kind: 'expense', name: 'Comida', clientUpdatedAt: '2026-10-20T10:00:00.000000Z'));
-    for (final t in ['loans', 'loan_movements', 'subscriptions', 'credit_cards', 'credit_card_payments']) {
+    for (final t in ['loans', 'loan_movements', 'subscriptions', 'credit_cards', 'credit_card_payments', 'budgets']) {
       await db.customStatement('DROP TABLE $t');
     }
     await db.customStatement('PRAGMA user_version = 1');
@@ -207,6 +207,6 @@ void main() {
     expect(await db.watchCreditCards().first, isEmpty);
     expect((await db.select(db.categories).getSingle()).name, 'Comida');
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 2);
+    expect(version.read<int>('user_version'), 3);
   });
 }

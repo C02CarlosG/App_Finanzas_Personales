@@ -123,6 +123,17 @@ Future<void> seedDemoData(AppDatabase db, {DateTime? now}) async {
         accountId: Value(account == null ? null : accounts[account]!.$1), updatedAt: Value(stamp), clientUpdatedAt: stamp));
   }
 
+  // Fase 3: presupuestos del mes (uno tranquilo, uno en aviso y uno excedido con los gastos de ejemplo).
+  for (final (category, cents, alert) in [
+    ('Alimentación', 300000, 80),
+    ('Transporte', 80000, 80),
+    ('Entretenimiento', 50000, 90),
+  ]) {
+    await row(db.budgets, BudgetsCompanion.insert(
+        id: uuid.v4(), categoryId: cat[category]!, monthlyLimitCents: cents, alertPercent: Value(alert),
+        updatedAt: Value(stamp), clientUpdatedAt: stamp));
+  }
+
   final azul = uuid.v4();
   await row(db.creditCards, CreditCardsCompanion.insert(
       id: azul, name: 'BBVA Azul', bankId: Value(bankIds['bbva']), pendingBalanceCents: const Value(485075),

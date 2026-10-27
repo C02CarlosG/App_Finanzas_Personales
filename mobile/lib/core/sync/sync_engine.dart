@@ -157,6 +157,8 @@ class SyncEngine {
             } else {
               await _mergeDuplicateCategory(sent, result['conflicting_id'] as String);
             }
+          case 'duplicate_budget':
+            await _dropDuplicateBudget(sent, result['conflicting_id'] as String?); // ya existe otro: llegará en el pull
           default: // conflict u otro: se reintenta en el siguiente ciclo
             await _bumpAttempt(sent, code ?? status);
         }
@@ -212,7 +214,50 @@ class SyncEngine {
               .write(TransactionsCompanion(categoryId: Value(conflictingId), clientUpdatedAt: Value(stamp)));
           await store.enqueue('transactions', tx.id, stamp, deleted: tx.deletedAt != null);
         }
+        // Los presupuestos de la categoría descartada pasan a la que sobrevive; si esa ya tiene uno, el local sobra.
+        // (Nunca llegaron al servidor: su categoría no existía allá, así que su categoría puede cambiar.)
+        final budgets = await (db.select(db.budgets)..where((b) => b.categoryId.equals(sent.recordId))).get();
+        for (final b in budgets) {
+          final survivor = await (db.select(db.budgets)..where((x) => x.categoryId.equals(conflictingId) & x.deletedAt.isNull())).getSingleOrNull();
+          if (b.deletedAt != null || survivor != null) {
+            await _tables['budgets']!.removeLocal(b.id);
+            await _removeOutbox('budgets', b.id);
+          } else {
+            await (db.update(db.budgets)..where((x) => x.id.equals(b.id)))
+                .write(BudgetsCompanion(categoryId: Value(conflictingId), clientUpdatedAt: Value(stamp)));
+            await store.enqueue('budgets', b.id, stamp);
+          }
+        }
         await _tables['categories']!.removeLocal(sent.recordId);
+        await _removeOutbox(sent.entity, sent.recordId);
+      });
+
+  /// Otro dispositivo eliminó la categoría: sus presupuestos que aún no se enviaron ya no tienen dónde vivir (el servidor
+  /// rechazaría cada intento con `invalid_reference` para siempre). Los ya sincronizados no existen: el servidor no
+  /// borra una categoría con presupuesto vivo.
+  Future<void> _dropOrphanBudgets(String categoryId) async {
+    final orphans = await (db.select(db.budgets)..where((b) => b.categoryId.equals(categoryId) & b.updatedAt.isNull())).get();
+    for (final b in orphans) {
+      await _tables['budgets']!.removeLocal(b.id);
+      await _removeOutbox('budgets', b.id);
+    }
+  }
+
+  /// `duplicate_budget`: el alta nunca llegó al servidor, que ya tiene el presupuesto de esa categoría. Se descarta
+  /// el local (el vigente llega en el pull de este mismo ciclo). Si el usuario lo editó con el lote en vuelo, no se
+  /// toca: esa edición es un cambio nuevo que volverá a recibir la misma respuesta y entonces se descartará.
+  ///
+  /// Excepción: si el presupuesto que estorba lo está borrando este mismo dispositivo (la baja va en otro lote),
+  /// el nuevo se conserva y se reintenta en el siguiente ciclo, cuando la baja ya haya llegado.
+  Future<void> _dropDuplicateBudget(OutboxEntry sent, String? conflictingId) => db.transaction(() async {
+        final current = await _outbox(sent.entity, sent.recordId);
+        if (current != null && current.clientUpdatedAt.compareTo(sent.clientUpdatedAt) > 0) return;
+        final blocker = conflictingId == null ? null : await _outbox('budgets', conflictingId);
+        if (blocker != null && blocker.deleted) {
+          await _bumpAttempt(sent, 'duplicate_budget');
+          return;
+        }
+        await _tables['budgets']!.removeLocal(sent.recordId);
         await _removeOutbox(sent.entity, sent.recordId);
       });
 
@@ -284,6 +329,7 @@ class SyncEngine {
       // El tombstone gana a cualquier edición: se descarta lo pendiente.
       await table.applyServerRecord(record);
       if (pending != null) await _removeOutbox(table.entity, id);
+      if (table.entity == 'categories') await _dropOrphanBudgets(id);
       return;
     }
     if (pending != null) {

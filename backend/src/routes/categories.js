@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db/pool');
 const validate = require('../middleware/validate');
 const { AppError, notFound } = require('../utils/errors');
+const { categoryHasBudget } = require('../services/links');
 const { z, uuid, idParams } = require('../utils/schemas');
 
 const router = express.Router();
@@ -71,6 +72,7 @@ router.delete('/:id', validate({ params: idParams }), async (req, res) => {
   const { id } = req.valid.params;
   const current = await findOne(req.userId, id);
   if (current.is_system) throw new AppError(409, 'Las categorías del sistema no se pueden eliminar', 'system_category');
+  if (await categoryHasBudget(pool, req.userId, id)) throw new AppError(409, 'La categoría tiene un presupuesto; elimínalo primero', 'in_use');
   const used = await pool.query(
     'SELECT 1 FROM transactions WHERE category_id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1', [id, req.userId]);
   if (used.rowCount) throw new AppError(409, 'La categoría tiene transacciones; reasígnalas primero', 'in_use');
