@@ -13,7 +13,9 @@ class ExportFile {
 
 /// Entrega el archivo al usuario (hoja para compartir del sistema). Se sustituye en las pruebas.
 abstract class FileSharer {
-  Future<void> share(ExportFile file);
+  /// `false` si el usuario cerró la hoja sin elegir destino; `true` en cualquier otro caso (incluido cuando la
+  /// plataforma no informa qué pasó).
+  Future<bool> share(ExportFile file);
 }
 
 /// Abre la hoja para compartir del sistema (correo, WhatsApp, Drive, «guardar en archivos»…). El archivo viaja
@@ -22,12 +24,13 @@ class SharePlusFileSharer implements FileSharer {
   const SharePlusFileSharer();
 
   @override
-  Future<void> share(ExportFile file) async {
-    await SharePlus.instance.share(ShareParams(
+  Future<bool> share(ExportFile file) async {
+    final result = await SharePlus.instance.share(ShareParams(
       files: [XFile.fromData(file.bytes, mimeType: file.mimeType, name: file.name)],
       fileNameOverrides: [file.name],
       subject: file.name,
       title: 'Compartir reporte',
     ));
+    return result.status != ShareResultStatus.dismissed;
   }
 }

@@ -135,9 +135,12 @@ class TransactionFilter {
 }
 
 class Totals {
-  const Totals({required this.income, required this.expense});
+  const Totals({required this.income, required this.expense, this.count = 0});
   final Money income;
   final Money expense;
+
+  /// Cuántos movimientos cumplen el filtro (la vista previa de una exportación no necesita cargarlos).
+  final int count;
   Money get net => income - expense;
 }
 
@@ -290,12 +293,13 @@ extension AppQueries on AppDatabase {
     return customSelect(
       '''
       SELECT COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount_cents END), 0) AS income,
-             COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents END), 0) AS expense
+             COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount_cents END), 0) AS expense,
+             COUNT(t.id) AS n
       $_txJoins
       WHERE $where''',
       variables: vars,
       readsFrom: _allTables,
-    ).watchSingle().map((r) => Totals(income: Money(r.read<int>('income')), expense: Money(r.read<int>('expense'))));
+    ).watchSingle().map((r) => Totals(income: Money(r.read<int>('income')), expense: Money(r.read<int>('expense')), count: r.read<int>('n')));
   }
 
   /// Cambios con error o bloqueados (no los que solo esperan turno).

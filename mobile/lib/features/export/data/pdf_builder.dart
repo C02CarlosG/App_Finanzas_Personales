@@ -26,24 +26,31 @@ const _typographic = {
 /// equivalente (emojis, otros alfabetos) se sustituye por «?» para que se note que faltaba algo en vez de desaparecer.
 String pdfSafe(String text) {
   final out = StringBuffer();
+  var lastWasSubstitute = false; // varios caracteres seguidos sin equivalente se muestran con un solo «?»
+  void write(String s) {
+    out.write(s);
+    lastWasSubstitute = false;
+  }
+
   for (final rune in text.runes) {
     final ch = String.fromCharCode(rune);
     final mapped = _typographic[ch];
     if (mapped != null) {
-      out.write(mapped);
+      write(mapped);
     } else if (rune == 0x0A || rune == 0x0D || rune == 0x09) {
-      out.write(' ');
+      write(' ');
     } else if (rune < 0x20 || (rune >= 0x7F && rune < 0xA0)) {
       continue;
     } else if (rune <= 0xFF) {
-      out.write(ch);
+      write(ch);
     } else if (rune == 0x200D || (rune >= 0xFE00 && rune <= 0xFE0F)) {
       continue; // unión y selectores de variación de los emojis compuestos
-    } else {
+    } else if (!lastWasSubstitute) {
       out.write('?');
+      lastWasSubstitute = true;
     }
   }
-  return out.toString().replaceAll(RegExp(r'\?{2,}'), '?');
+  return out.toString();
 }
 
 /// PDF legible e imprimible (A4) del mismo contenido que el Excel: encabezado con periodo y filtros, resumen,
@@ -62,13 +69,13 @@ Future<Uint8List> buildPdf(ExportData data) async {
   final smallBold = small.copyWith(fontWeight: pw.FontWeight.bold);
   String money(Money m) => m.format();
 
-  final t = pdfSafe;
+  final safe = pdfSafe;
 
   pw.Widget kv(String k, String v) => pw.Padding(
         padding: const pw.EdgeInsets.only(bottom: 2),
         child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
           pw.SizedBox(width: 90, child: pw.Text(k, style: pw.TextStyle(fontSize: 10, color: _muted))),
-          pw.Expanded(child: pw.Text(t(v), style: const pw.TextStyle(fontSize: 10, color: _ink))),
+          pw.Expanded(child: pw.Text(safe(v), style: const pw.TextStyle(fontSize: 10, color: _ink))),
         ]),
       );
 
@@ -87,7 +94,7 @@ Future<Uint8List> buildPdf(ExportData data) async {
   pw.Widget table(List<String> headers, List<List<String>> rows, {Map<int, pw.TableColumnWidth>? widths, Set<int> right = const {}}) =>
       pw.TableHelper.fromTextArray(
         headers: headers,
-        data: [for (final r in rows) [for (final c in r) t(c)]],
+        data: [for (final r in rows) [for (final c in r) safe(c)]],
         headerStyle: smallBold,
         cellStyle: small,
         headerDecoration: const pw.BoxDecoration(color: _headerFill),
@@ -101,13 +108,15 @@ Future<Uint8List> buildPdf(ExportData data) async {
       );
 
   doc.addPage(pw.MultiPage(
+    // El paquete corta en 20 páginas por defecto (unas 800 filas); un año de movimientos pasa de eso.
+    maxPages: 5000,
     pageTheme: pw.PageTheme(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.fromLTRB(36, 36, 36, 40),
       theme: pw.ThemeData.withFont(base: base, bold: bold),
     ),
     footer: (ctx) => pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
-      pw.Text(t('Finanzas Personales - ${data.userName}'), style: pw.TextStyle(fontSize: 8, color: _muted)),
+      pw.Text(safe('Finanzas Personales - ${data.userName}'), style: pw.TextStyle(fontSize: 8, color: _muted)),
       pw.Text('Página ${ctx.pageNumber} de ${ctx.pagesCount}', style: pw.TextStyle(fontSize: 8, color: _muted)),
     ]),
     build: (ctx) => [

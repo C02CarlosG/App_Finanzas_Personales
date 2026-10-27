@@ -8,9 +8,16 @@ import 'data/file_sharer.dart';
 /// Hoja para compartir del sistema; las pruebas la sustituyen.
 final fileSharerProvider = Provider<FileSharer>((ref) => const SharePlusFileSharer());
 
+/// Dónde se genera el archivo (en un isolate); las pruebas lo sustituyen por una generación directa.
+final exportBuilderProvider = Provider<ExportBuilder>((ref) => buildInBackground);
+
 /// `null` sin base local (sin sesión).
 final exportServiceProvider = Provider<ExportService?>((ref) {
   final db = ref.watch(databaseProvider);
   if (db == null) return null;
-  return ExportService(repository: ExportRepository(db), sharer: ref.watch(fileSharerProvider));
+  return ExportService(
+    repository: ExportRepository(db),
+    sharer: ref.watch(fileSharerProvider),
+    builder: ref.watch(exportBuilderProvider),
+  );
 });

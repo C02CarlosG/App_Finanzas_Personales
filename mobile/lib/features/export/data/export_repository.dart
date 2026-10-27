@@ -22,24 +22,34 @@ class ExportRepository {
       from: request.from,
       to: request.to,
     ));
-    // Del más antiguo al más reciente; a igual fecha, el orden de captura (la consulta ya viene del más nuevo al más viejo).
-    final ordered = rows.reversed.toList()..sort((a, b) => a.occurredOn.compareTo(b.occurredOn));
+    // Del más antiguo al más reciente; a igual fecha, el orden de captura (la consulta viene del más nuevo al más viejo,
+    // así que se invierte). `List.sort` no es estable: el índice original desempata para que dos exportaciones iguales
+    // salgan idénticas.
+    final captured = rows.reversed.toList();
+    final order = [for (var i = 0; i < captured.length; i++) i]
+      ..sort((a, b) {
+        final byDate = captured[a].occurredOn.compareTo(captured[b].occurredOn);
+        return byDate != 0 ? byDate : a.compareTo(b);
+      });
+    final ordered = [for (final i in order) captured[i]];
 
     var income = 0;
     var expense = 0;
-    final byCategory = <(String, String), ({int cents, int count})>{};
+    // Los movimientos de una categoría borrada van aparte de cualquier categoría que se llame «Sin categoría».
+    final byCategory = <(String, String?), ({int cents, int count})>{};
     for (final r in ordered) {
       if (r.isIncome) {
         income += r.amount.cents;
       } else {
         expense += r.amount.cents;
       }
-      final key = (r.type, r.categoryName ?? 'Sin categoría');
+      final key = (r.type, r.categoryName);
       final prev = byCategory[key];
       byCategory[key] = (cents: (prev?.cents ?? 0) + r.amount.cents, count: (prev?.count ?? 0) + 1);
     }
     final categories = [
-      for (final e in byCategory.entries) CategoryTotal(kind: e.key.$1, name: e.key.$2, total: Money(e.value.cents), count: e.value.count),
+      for (final e in byCategory.entries)
+        CategoryTotal(kind: e.key.$1, name: e.key.$2 ?? 'Sin categoría', total: Money(e.value.cents), count: e.value.count),
     ]..sort((a, b) {
         if (a.kind != b.kind) return a.kind == 'income' ? -1 : 1;
         final byTotal = b.total.cents.compareTo(a.total.cents);

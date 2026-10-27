@@ -87,6 +87,32 @@ void main() {
       expect(d.byCategory.map((c) => c.name), contains('Sin categoría'));
     });
 
+    test('una categoría borrada no se mezcla con una categoría real llamada «Sin categoría»', () async {
+      await h.store.saveCategory(id: 'sc', kind: 'expense', name: 'Sin categoría');
+      await h.store.saveTransaction(
+          id: 'real', type: 'expense', amount: Money.parse('10'), accountId: 'cartera', categoryId: 'sc', occurredOn: '2026-10-20');
+      await h.store.saveTransaction(
+          id: 'huerfano2', type: 'expense', amount: Money.parse('5'), accountId: 'cartera', categoryId: 'no-existe', occurredOn: '2026-10-21');
+      final d = await load();
+      final rows = d.byCategory.where((c) => c.name == 'Sin categoría').toList();
+      expect(rows.map((c) => (c.total.cents, c.count)).toList()..sort((a, b) => a.$1.compareTo(b.$1)), [(500, 1), (1000, 1)]);
+    });
+
+    test('a igual fecha conserva el orden de captura aunque haya cientos de movimientos (el sort de Dart no es estable)', () async {
+      for (var i = 0; i < 300; i++) {
+        await h.store.saveTransaction(
+            id: 'orden${i.toString().padLeft(3, '0')}', type: 'expense', amount: Money.parse('1'), accountId: 'cartera',
+            categoryId: Catalog.comida, occurredOn: '2026-10-${(i % 3 + 10).toString()}', description: 'n$i');
+        h.advance(const Duration(milliseconds: 5)); // sellos de captura distintos
+      }
+      final d = await load(category: Catalog.comida, type: 'expense');
+      for (final day in ['2026-10-10', '2026-10-11', '2026-10-12']) {
+        final seq = [for (final r in d.rows) if (r.occurredOn == day) int.parse(r.description!.substring(1))];
+        expect(seq.length, 100);
+        expect(seq, [...seq]..sort(), reason: 'el día $day sale en el orden en que se capturó');
+      }
+    });
+
     test('un periodo vacío o invertido no es válido; sin movimientos todo queda en cero', () async {
       await expectLater(load(from: '2026-10-31', to: '2026-10-31'), throwsA(isA<ValidationException>()));
       await expectLater(load(from: '2026-11-01', to: '2026-10-01'), throwsA(isA<ValidationException>()));
@@ -174,7 +200,23 @@ void main() {
       expect(pdfSafe('“Hola” – ‘tía’… —'), '"Hola" - \'tía\'... -');
       expect(pdfSafe('Pizza 🍕🍕 日本 👨‍👩‍👧'), 'Pizza ? ? ?');
       expect(pdfSafe('a\nb\tc\u0000d'), 'a b cd');
+      expect(pdfSafe('Pago ??? pendiente ¿?'), 'Pago ??? pendiente ¿?', reason: 'lo que escribió el usuario no se altera');
+      expect(pdfSafe('日本語 y 😀😀'), '? y ?');
       expect(pdfSafe(''), '');
+    });
+
+    test('un año de movimientos (más de 20 páginas) no revienta el límite por defecto del paquete', () async {
+      await h.store.saveCategory(id: 'masiva', kind: 'expense', name: 'Masiva');
+      await h.db.batch((b) {
+        for (var i = 0; i < 1500; i++) {
+          b.customStatement(
+              "INSERT INTO transactions (id, type, amount_cents, account_id, category_id, occurred_on, description, client_updated_at) "
+              "VALUES ('big$i', 'expense', ${100 + i}, 'cartera', 'masiva', '2026-10-${(i % 28 + 1).toString().padLeft(2, '0')}', 'Movimiento $i', '2026-10-01T00:00:00.000000Z')");
+        }
+      });
+      final bytes = await buildPdf(await load());
+      final pages = int.parse(RegExp(r'/Type/Pages/Kids\[[^\]]*\]/Count (\d+)').firstMatch(String.fromCharCodes(bytes))!.group(1)!);
+      expect(pages, greaterThan(20));
     });
 
     test('sin movimientos también genera el PDF, con el aviso', () async {
@@ -194,11 +236,12 @@ void main() {
   group('ExportService', () {
     test('genera el nombre y el tipo MIME según el formato y entrega el archivo al sharer', () async {
       final sharer = _FakeSharer();
-      final service = ExportService(repository: repo, sharer: sharer);
+      final service = ExportService(
+          repository: repo, sharer: sharer, builder: (data, format) => buildExportBytes((data: data, format: format)));
       final data = await load();
 
-      final xlsx = await service.exportAndShare(data, ExportFormat.excel);
-      final pdf = await service.exportAndShare(data, ExportFormat.pdf);
+      final xlsx = (await service.exportAndShare(data, ExportFormat.excel)).file;
+      final pdf = (await service.exportAndShare(data, ExportFormat.pdf)).file;
       expect(sharer.files.map((f) => f.name), ['finanzas_2026-10-01_a_2026-10-31.xlsx', 'finanzas_2026-10-01_a_2026-10-31.pdf']);
       expect(sharer.files.map((f) => f.mimeType), [
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -207,11 +250,30 @@ void main() {
       expect(xlsx.bytes.sublist(0, 2), [0x50, 0x4B], reason: 'un .xlsx es un zip');
       expect(String.fromCharCodes(pdf.bytes.sublist(0, 4)), '%PDF');
     });
+
+    test('avisa si el usuario cerró la hoja de compartir sin elegir destino', () async {
+      final sharer = _FakeSharer()..dismiss = true;
+      final service = ExportService(
+          repository: repo, sharer: sharer, builder: (data, format) => buildExportBytes((data: data, format: format)));
+      expect((await service.exportAndShare(await load(), ExportFormat.excel)).delivered, isFalse);
+    });
+
+    test('la generación en un isolate (la de producción) da los mismos archivos que en el hilo principal', () async {
+      final data = await load();
+      final excel = await buildInBackground(data, ExportFormat.excel);
+      final pdf = await buildInBackground(data, ExportFormat.pdf);
+      expect(Excel.decodeBytes(excel)['Movimientos'].rows.length, greaterThan(5));
+      expect(String.fromCharCodes(pdf.sublist(0, 5)), '%PDF-');
+    });
   });
 }
 
 class _FakeSharer implements FileSharer {
   final files = <ExportFile>[];
+  bool dismiss = false;
   @override
-  Future<void> share(ExportFile file) async => files.add(file);
+  Future<bool> share(ExportFile file) async {
+    files.add(file);
+    return !dismiss;
+  }
 }

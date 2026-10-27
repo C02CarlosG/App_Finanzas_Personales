@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:finanzas_personales/core/data/data_providers.dart';
 import 'package:finanzas_personales/core/money/money.dart';
+import 'package:finanzas_personales/features/export/data/export_service.dart';
 import 'package:finanzas_personales/features/export/data/file_sharer.dart';
 import 'package:finanzas_personales/features/export/export_providers.dart';
 import 'package:finanzas_personales/features/export/presentation/export_page.dart';
@@ -16,12 +17,14 @@ class _FakeSharer implements FileSharer {
   final files = <ExportFile>[];
   Completer<void>? gate;
   Object? error;
+  bool dismiss = false;
 
   @override
-  Future<void> share(ExportFile file) async {
+  Future<bool> share(ExportFile file) async {
     await gate?.future;
     if (error != null) throw error!;
     files.add(file);
+    return !dismiss;
   }
 }
 
@@ -60,6 +63,8 @@ void main() {
     await seedMovements(tester);
     await pumpApp(tester, h, size: size, extra: [
       fileSharerProvider.overrideWithValue(sharer),
+      // En la app real el archivo se genera en un isolate; en pruebas de interfaz, en el hilo de la prueba.
+      exportBuilderProvider.overrideWithValue((data, format) => buildExportBytes((data: data, format: format))),
       todayProvider.overrideWithValue(today),
     ]);
     await goToTab(tester, 'Perfil');
@@ -231,6 +236,16 @@ void main() {
     await settleDb(tester);
     expect(sharer.files, hasLength(1), reason: 'un solo archivo aunque se haya vuelto a tocar');
     expect(tester.widget<FilledButton>(find.byKey(const Key('exportar-boton'))).onPressed, isNotNull);
+    await finishApp(tester);
+  });
+
+  testWidgets('si cierra la hoja de compartir sin elegir destino no se anuncia «Listo»', (tester) async {
+    sharer.dismiss = true;
+    await openExport(tester);
+    await choose(tester, 'exportar-boton');
+    expect(sharer.files, hasLength(1));
+    expect(find.byKey(const Key('aviso-exportacion')), findsNothing);
+    expect(find.byKey(const Key('error-exportacion')), findsNothing);
     await finishApp(tester);
   });
 

@@ -95,12 +95,11 @@ class _ExportPageState extends ConsumerState<ExportPage> {
         userEmail: session?.email ?? '',
         now: DateTime.now(),
       );
-      // Deja pintar el indicador antes del trabajo pesado de generar el archivo.
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      final file = await service.exportAndShare(data, _format);
-      if (mounted) {
+      final result = await service.exportAndShare(data, _format);
+      // Si cerró la hoja de compartir sin elegir destino no se canta victoria.
+      if (mounted && result.delivered) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(key: const Key('aviso-exportacion'), content: Text('Listo: ${file.name}')));
+            .showSnackBar(SnackBar(key: const Key('aviso-exportacion'), content: Text('Listo: ${result.file.name}')));
       }
     } on ValidationException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -118,8 +117,8 @@ class _ExportPageState extends ConsumerState<ExportPage> {
     final filter = _filter(range);
     final accounts = ref.watch(accountsProvider).value ?? const [];
     final categories = ref.watch(categoriesProvider(_type)).value ?? const [];
-    final count = invalidRange ? null : ref.watch(transactionsProvider(filter)).value?.length;
     final totals = invalidRange ? null : ref.watch(totalsProvider(filter)).value;
+    final count = totals?.count;
     final theme = Theme.of(context);
     final lastDay = invalidRange ? null : isoDate(parseIsoDate(range.to).subtract(const Duration(days: 1)));
     final canExport = !_busy && !invalidRange && (count ?? 0) > 0;
